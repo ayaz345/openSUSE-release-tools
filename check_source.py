@@ -130,7 +130,9 @@ class CheckSource(ReviewBot.ReviewBot):
             self.review_messages['accepted'] = 'Skipping all checks for meta packages'
             return True
         elif (kind is not None and kind != 'source'):
-            self.review_messages['declined'] = 'May not modify a non-source package of type {}'.format(kind)
+            self.review_messages[
+                'declined'
+            ] = f'May not modify a non-source package of type {kind}'
             return False
 
         if not self.allow_source_in_sle and self.sle_project_to_check:
@@ -141,7 +143,9 @@ class CheckSource(ReviewBot.ReviewBot):
 
         if self.ensure_source_exist_in_baseproject and self.devel_baseproject:
             if not entity_exists(self.apiurl, self.devel_baseproject, target_package) and source_project not in self.valid_source_origins:
-                self.review_messages['declined'] = "Per our development policy, please submit to %s first." % self.devel_baseproject
+                self.review_messages[
+                    'declined'
+                ] = f"Per our development policy, please submit to {self.devel_baseproject} first."
                 return False
 
         inair_renamed = target_package != source_package
@@ -150,43 +154,33 @@ class CheckSource(ReviewBot.ReviewBot):
             self.logger.info('checking if target package exists and has devel project')
             devel_project, devel_package = devel_project_get(self.apiurl, target_project, target_package)
             if devel_project:
-                if ((source_project != devel_project or source_package != devel_package) and
-                   not (source_project == target_project and source_package == target_package)):
+                if (
+                    source_project != devel_project
+                    or source_package != devel_package
+                ) and (
+                    source_project != target_project
+                    or source_package != target_package
+                ):
                     # Not from proper devel project/package and not self-submission.
-                    self.review_messages['declined'] = 'Expected submission from devel package %s/%s' % (
-                        devel_project, devel_package)
+                    self.review_messages[
+                        'declined'
+                    ] = f'Expected submission from devel package {devel_project}/{devel_package}'
                     return False
-            else:
-                # Check to see if other packages exist with the same source project
-                # which indicates that the project has already been used as devel.
-                if not self.is_devel_project(source_project, target_project):
-                    self.review_messages['declined'] = (
-                        '%s is not a devel project of %s, submit the package to a devel project first. '
-                        'See https://en.opensuse.org/openSUSE:How_to_contribute_to_Factory#How_to_request_a_new_devel_project for details.'
-                    ) % (source_project, target_project)
-                    return False
-        else:
-            if source_project.endswith(':Update'):
-                # Allow for submission like:
-                # - source: openSUSE:Leap:15.0:Update/google-compute-engine.8258
-                # - target: openSUSE:Leap:15.1/google-compute-engine
-                # Note: home:jberry:Update would also be allowed via this condition,
-                # but that should be handled by leaper and human review.
-                # Ignore a dot in package name (ex. tpm2.0-abrmd) and instead
-                # only look for ending in dot number.
-                match = re.match(r'(.*)\.\d+$', source_package)
-                if match:
-                    inair_renamed = target_package != match.group(1)
+            elif not self.is_devel_project(source_project, target_project):
+                self.review_messages['declined'] = (
+                    '%s is not a devel project of %s, submit the package to a devel project first. '
+                    'See https://en.opensuse.org/openSUSE:How_to_contribute_to_Factory#How_to_request_a_new_devel_project for details.'
+                ) % (source_project, target_project)
+                return False
+        elif source_project.endswith(':Update'):
+            if match := re.match(r'(.*)\.\d+$', source_package):
+                inair_renamed = target_package != match[1]
 
         if not self.source_has_correct_maintainers(source_project):
-            declined_msg = (
-                'This request cannot be accepted unless %s is a maintainer of %s.' %
-                (self.required_maintainer, source_project)
-            )
+            declined_msg = f'This request cannot be accepted unless {self.required_maintainer} is a maintainer of {source_project}.'
 
-            req = self.__ensure_add_role_request(source_project)
-            if req:
-                declined_msg += ' Created the add_role request %s for addressing this problem.' % req
+            if req := self.__ensure_add_role_request(source_project):
+                declined_msg += f' Created the add_role request {req} for addressing this problem.'
 
             self.review_messages['declined'] = declined_msg
             return False
@@ -196,9 +190,9 @@ class CheckSource(ReviewBot.ReviewBot):
             return False
 
         # Checkout and see if renaming package screws up version parsing.
-        dir = os.path.expanduser('~/co/%s' % self.request.reqid)
+        dir = os.path.expanduser(f'~/co/{self.request.reqid}')
         if os.path.exists(dir):
-            self.logger.warning('directory %s already exists' % dir)
+            self.logger.warning(f'directory {dir} already exists')
             shutil.rmtree(dir)
         os.makedirs(dir)
         os.chdir(dir)
@@ -210,7 +204,9 @@ class CheckSource(ReviewBot.ReviewBot):
             os.rename(target_package, '_old')
         except HTTPError as e:
             if e.code == 404:
-                self.logger.info('target package does not exist %s/%s' % (target_project, target_package))
+                self.logger.info(
+                    f'target package does not exist {target_project}/{target_package}'
+                )
             else:
                 raise e
 
@@ -224,10 +220,15 @@ class CheckSource(ReviewBot.ReviewBot):
         expected_name = target_package
         if filename == '_preinstallimage':
             expected_name = 'preinstallimage'
-        if not (filename.endswith('.kiwi') or filename == 'Dockerfile') and new_info['name'] != expected_name:
+        if (
+            not filename.endswith('.kiwi')
+            and filename != 'Dockerfile'
+            and new_info['name'] != expected_name
+        ):
             shutil.rmtree(dir)
-            self.review_messages['declined'] = "A package submitted as %s has to build as 'Name: %s' - found Name '%s'" % (
-                target_package, expected_name, new_info['name'])
+            self.review_messages[
+                'declined'
+            ] = f"A package submitted as {target_package} has to build as 'Name: {expected_name}' - found Name '{new_info['name']}'"
             return False
 
         if not self.check_service_file(target_package):
@@ -263,8 +264,11 @@ class CheckSource(ReviewBot.ReviewBot):
         if self.skip_add_reviews:
             return True
 
-        if self.add_review_team and self.review_team is not None:
-            if not (self.allow_valid_source_origin and source_project in self.valid_source_origins):
+        if (
+            not self.allow_valid_source_origin
+            or source_project not in self.valid_source_origins
+        ):
+            if self.add_review_team and self.review_team is not None:
                 self.add_review(self.request, by_group=self.review_team, msg='Please review sources')
 
         if self.add_devel_project_review:
@@ -275,21 +279,22 @@ class CheckSource(ReviewBot.ReviewBot):
                 known_maintainer = False
                 if maintainers:
                     if submitter in maintainers:
-                        self.logger.debug("%s is maintainer" % submitter)
+                        self.logger.debug(f"{submitter} is maintainer")
                         known_maintainer = True
                     if not known_maintainer:
                         for r in self.request.reviews:
                             if r.by_user in maintainers:
-                                self.logger.debug("found %s as reviewer" % r.by_user)
+                                self.logger.debug(f"found {r.by_user} as reviewer")
                                 known_maintainer = True
                 if not known_maintainer:
-                    self.logger.warning("submitter: %s, maintainers: %s => need review" % (submitter, ','.join(maintainers)))
-                    self.logger.debug("adding review to %s/%s" % (devel_project, devel_package))
-                    msg = ('Submission for {} by someone who is not maintainer in '
-                           'the devel project ({}). Please review').format(target_package, devel_project)
+                    self.logger.warning(
+                        f"submitter: {submitter}, maintainers: {','.join(maintainers)} => need review"
+                    )
+                    self.logger.debug(f"adding review to {devel_project}/{devel_package}")
+                    msg = f'Submission for {target_package} by someone who is not maintainer in the devel project ({devel_project}). Please review'
                     self.add_review(self.request, by_project=devel_project, by_package=devel_package, msg=msg)
             else:
-                self.logger.warning("%s doesn't have devel project" % target_package)
+                self.logger.warning(f"{target_package} doesn't have devel project")
 
         if self.only_changes():
             self.logger.debug('only .changes modifications')
@@ -309,17 +314,17 @@ class CheckSource(ReviewBot.ReviewBot):
 
         # Allow any projects already used as devel projects for other packages.
         search = {
-            'package': "@project='%s' and devel/@project='%s'" % (target_project, source_project),
+            'package': f"@project='{target_project}' and devel/@project='{source_project}'"
         }
         result = osc.core.search(self.apiurl, **search)
         return result['package'].attrib['matches'] != '0'
 
     def check_service_file(self, directory):
-        ALLOWED_MODES = ['localonly', 'disabled', 'buildtime', 'manual']
-
         servicefile = os.path.join(directory, '_service')
         if os.path.exists(servicefile):
             services = ET.parse(servicefile)
+            ALLOWED_MODES = ['localonly', 'disabled', 'buildtime', 'manual']
+
             for service in services.findall('service'):
                 mode = service.get('mode')
                 if mode in ALLOWED_MODES:
@@ -328,7 +333,7 @@ class CheckSource(ReviewBot.ReviewBot):
                 name = service.get('name')
                 self.review_messages[
                     'declined'] = f"Services are only allowed if their mode is one of {allowed}. " + \
-                    f"Please change the mode of {name} and use `osc service localrun/disabledrun`."
+                        f"Please change the mode of {name} and use `osc service localrun/disabledrun`."
                 return False
             # remove it away to have full service from source validator
             os.unlink(servicefile)
@@ -352,13 +357,13 @@ class CheckSource(ReviewBot.ReviewBot):
 
     def check_spec_policy(self, old, directory, specs):
         bname = os.path.basename(directory)
-        if not os.path.exists(os.path.join(directory, bname + '.changes')):
+        if not os.path.exists(os.path.join(directory, f'{bname}.changes')):
             text = f"{bname}.changes is missing. "
             text += "A package submitted as FooBar needs to have a FooBar.changes file with a format created by `osc vc`."
             self.review_messages['declined'] = text
             return False
 
-        specfile = os.path.join(directory, bname + '.spec')
+        specfile = os.path.join(directory, f'{bname}.spec')
         if not os.path.exists(specfile):
             self.review_messages['declined'] = f"{bname}.spec is missing. A package submitted as FooBar needs to have a FooBar.spec file."
             return False
@@ -421,14 +426,17 @@ class CheckSource(ReviewBot.ReviewBot):
         source_project - source project name
         """
         self.logger.info(
-            'Checking required maintainer from the source project (%s)' % self.required_maintainer
+            f'Checking required maintainer from the source project ({self.required_maintainer})'
         )
         if not self.required_maintainer:
             return True
 
         meta = ET.fromstringlist(show_project_meta(self.apiurl, source_project))
         maintainers = meta.xpath('//person[@role="maintainer"]/@userid')
-        maintainers += ['group:' + g for g in meta.xpath('//group[@role="maintainer"]/@groupid')]
+        maintainers += [
+            f'group:{g}'
+            for g in meta.xpath('//group[@role="maintainer"]/@groupid')
+        ]
 
         return self.required_maintainer in maintainers
 

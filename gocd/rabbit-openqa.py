@@ -24,7 +24,7 @@ class Project(object):
         self.name = name
         Config(apiurl, name)
         self.api = StagingAPI(apiurl, name)
-        self.staging_projects = dict()
+        self.staging_projects = {}
         self.listener = None
         self.logger = logging.getLogger(__name__)
         self.replace_string = self.api.attribute_value_load('OpenQAMapping')
@@ -44,7 +44,7 @@ class Project(object):
     def map_iso(self, staging_project, iso):
         parts = self.replace_string.split('/')
         if parts[0] != 's':
-            raise Exception("{}'s iso_replace_string does not start with s/".format(self.name))
+            raise Exception(f"{self.name}'s iso_replace_string does not start with s/")
         old = parts[1]
         new = parts[2]
         new = new.replace('$LETTER', self.staging_letter(staging_project))
@@ -61,16 +61,15 @@ class Project(object):
         return stagingiso
 
     def gather_isos(self, name, repository):
-        ret = []
-
         # Fetch /published/prj/repo/iso/*.iso
         url = self.api.makeurl(['published', name, repository, 'iso'])
         f = self.api.retried_GET(url)
         root = ET.parse(f).getroot()
-        for entry in root.findall('entry'):
-            if entry.get('name').endswith('.iso'):
-                ret.append(self.map_iso(name, entry.get('name')))
-
+        ret = [
+            self.map_iso(name, entry.get('name'))
+            for entry in root.findall('entry')
+            if entry.get('name').endswith('.iso')
+        ]
         # Fetch /published/prj/repo/iso/*.qcow2
         url = self.api.makeurl(['published', name, repository])
         f = self.api.retried_GET(url)
@@ -80,10 +79,7 @@ class Project(object):
             if filename.endswith('.qcow2') or filename.endswith('.raw.xz'):
                 ret.append(self.map_iso(name, filename))
 
-        # Filter out isos which couldn't be mapped
-        ret = [iso for iso in ret if iso]
-
-        return ret
+        return [iso for iso in ret if iso]
 
     def gather_buildid(self, name, repository):
         url = self.api.makeurl(['published', name, repository], {'view': 'status'})
@@ -107,49 +103,45 @@ class Project(object):
             openqa_infos[job['id']]['build'] = job['settings']['BUILD']
             openqa_infos[job['id']]['name'] = f"{job['settings']['FLAVOR']}-{job['settings']['TEST']}@{job['settings']['MACHINE']}"
 
-    def compare_simple_builds(build1, build2):
+    def compare_simple_builds(self, build2):
         """Simple build number comparison"""
-        ver1 = version.parse(build1)
+        ver1 = version.parse(self)
         ver2 = version.parse(build2)
         if ver1 < ver2:
             return -1
-        if ver1 > ver2:
-            return 1
-        return 0
+        return 1 if ver1 > ver2 else 0
 
-    def compare_composite_builds(build1, build2):
+    def compare_composite_builds(self, build2):
         """Compare BUILD numbers consisting of multiple _-separated components."""
-        components1 = build1.split('_')
+        components1 = self.split('_')
         components2 = build2.split('_')
         if len(components1) != len(components2):
-            raise Exception(f'Failed to compare {build1} and {build2}: Different format')
+            raise Exception(f'Failed to compare {self} and {build2}: Different format')
 
         component_cmps = [Project.compare_simple_builds(components1[i], components2[i]) for i in range(0, len(components1))]
         less = -1 in component_cmps
         greater = 1 in component_cmps
-        if less and greater:
-            raise Exception(f'Failed to compare {build1} and {build2}: Not ordered')
         if less:
+            if greater:
+                raise Exception(f'Failed to compare {self} and {build2}: Not ordered')
             return -1
-        if greater:
-            return 1
-        return 0
+        return 1 if greater else 0
 
     def update_staging_status(self, staging):
-        openqa_infos = dict()
+        openqa_infos = {}
         for iso in self.staging_projects[staging]['isos']:
             self.fetch_openqa_jobs(staging, iso, openqa_infos)
 
         buildid = self.staging_projects[staging].get('id')
         if not buildid:
-            self.logger.info("I don't know the build id of " + staging)
+            self.logger.info(f"I don't know the build id of {staging}")
             return
         # all openQA jobs are created at the same URL
         url = self.api.makeurl(['status_reports', 'published', staging, 'images', 'reports', buildid])
 
         # make sure the names are unique
         obsolete_jobs = []
-        taken_names = dict()
+        taken_names = {}
         for id in openqa_infos:
             name = openqa_infos[id]['name']
             if name in taken_names:
@@ -186,7 +178,7 @@ class Project(object):
                 else:
                     http_POST(url, data=xml)
             except HTTPError:
-                self.logger.error('failed to post status to ' + url)
+                self.logger.error(f'failed to post status to {url}')
 
     def update_staging_buildid(self, project, repository, buildid):
         self.staging_projects[project]['id'] = buildid
@@ -208,16 +200,14 @@ class Project(object):
     def map_openqa_result(self, job):
         if job['result'] in ['passed', 'softfailed']:
             return 'success'
-        if job['result'] == 'none':
-            return 'pending'
-        return 'failure'
+        return 'pending' if job['result'] == 'none' else 'failure'
 
     def openqa_job_change(self, iso):
-        staging = self.matching_project(iso)
-        if not staging:
+        if staging := self.matching_project(iso):
+            # we fetch all openqa jobs so we can avoid long job names
+            self.update_staging_status(staging)
+        else:
             return
-        # we fetch all openqa jobs so we can avoid long job names
-        self.update_staging_status(staging)
 
     def openqa_check_xml(self, url, state, name):
         check = ET.Element('check')
@@ -241,11 +231,15 @@ class Listener(PubSubConsumer):
         self.projects_to_check = set()
 
     def routing_keys(self):
-        ret = []
-        for suffix in ['.obs.repo.published', '.openqa.job.done',
-                       '.openqa.job.create', '.openqa.job.restart']:
-            ret.append(self.amqp_prefix + suffix)
-        return ret
+        return [
+            self.amqp_prefix + suffix
+            for suffix in [
+                '.obs.repo.published',
+                '.openqa.job.done',
+                '.openqa.job.create',
+                '.openqa.job.restart',
+            ]
+        ]
 
     def add(self, project):
         project.listener = self
@@ -263,9 +257,7 @@ class Listener(PubSubConsumer):
         super(Listener, self).start_consuming()
 
     def interval(self):
-        if len(self.projects_to_check):
-            return 5
-        return super(Listener, self).interval()
+        return 5 if len(self.projects_to_check) else super(Listener, self).interval()
 
     def check_some_projects(self):
         count = 0
@@ -282,11 +274,10 @@ class Listener(PubSubConsumer):
         super(Listener, self).still_alive()
 
     def is_production_job(self, job):
-        if '/' in job['settings'].get('BUILD', '/') or \
-           'Development' in job['group']:
-            return False
-
-        return True
+        return (
+            '/' not in job['settings'].get('BUILD', '/')
+            and 'Development' not in job['group']
+        )
 
     def jobs_for_iso(self, iso):
         # Try ISO= matching first
@@ -331,7 +322,7 @@ class Listener(PubSubConsumer):
 
     def on_message(self, unused_channel, method, properties, body):
         self.acknowledge_message(method.delivery_tag)
-        if method.routing_key == '{}.obs.repo.published'.format(amqp_prefix):
+        if method.routing_key == f'{amqp_prefix}.obs.repo.published':
             self.on_published_repo(json.loads(body))
         elif re.search(r'.openqa.', method.routing_key):
             data = json.loads(body)
@@ -342,7 +333,7 @@ class Listener(PubSubConsumer):
             elif data.get('HDD_1'):
                 self.on_openqa_job(data.get('HDD_1'))
         else:
-            self.logger.warning("unknown rabbitmq message {}".format(method.routing_key))
+            self.logger.warning(f"unknown rabbitmq message {method.routing_key}")
 
 
 if __name__ == '__main__':

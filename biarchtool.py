@@ -19,33 +19,34 @@ class BiArchTool(ToolBase.ToolBase):
         ToolBase.ToolBase.__init__(self)
         self.project = project
         self.biarch_packages = None
-        self._has_baselibs = dict()
+        self._has_baselibs = {}
         self.packages = []
         self.arch = 'i586'
         self.rdeps = None
-        self.package_metas = dict()
+        self.package_metas = {}
         self.whitelist = {
-            'i586': set([
+            'i586': {
                 'bzr',
                 'git',
-                # _link to baselibs package
                 'libjpeg62-turbo',
                 'mercurial',
                 'subversion',
-                'ovmf'])
+                'ovmf',
+            }
         }
         self.blacklist = {
-            'i586': set([
+            'i586': {
                 'belle-sip',
                 'release-notes-openSUSE',
-                'openSUSE-EULAs',  # translate-toolkit
+                'openSUSE-EULAs',
                 'skelcd-openSUSE',
                 'plasma5-workspace',
                 'patterns-base',
                 'patterns-fonts',
                 'patterns-rpm-macros',
                 'patterns-yast',
-                '000release-packages'])
+                '000release-packages',
+            }
         }
 
     def get_filelist(self, project, package, expand=False):
@@ -108,14 +109,18 @@ class BiArchTool(ToolBase.ToolBase):
             if ':Rings' in self.project:
                 self.biarch_packages = set()
             else:
-                self.biarch_packages = set(self.meta_get_packagelist("%s:Rings:0-Bootstrap" % self.project))
-                self.biarch_packages |= set(self.meta_get_packagelist("%s:Rings:1-MinimalX" % self.project))
+                self.biarch_packages = set(
+                    self.meta_get_packagelist(f"{self.project}:Rings:0-Bootstrap")
+                )
+                self.biarch_packages |= set(
+                    self.meta_get_packagelist(f"{self.project}:Rings:1-MinimalX")
+                )
 
         self._init_rdeps()
         self.fill_package_meta()
 
     def fill_package_meta(self):
-        url = self.makeurl(['search', 'package'], "match=[@project='%s']" % self.project)
+        url = self.makeurl(['search', 'package'], f"match=[@project='{self.project}']")
         root = ET.fromstring(self.cached_GET(url))
         for p in root.findall('package'):
             name = p.attrib['name']
@@ -124,7 +129,7 @@ class BiArchTool(ToolBase.ToolBase):
     def _init_rdeps(self):
         if self.rdeps is not None:
             return
-        self.rdeps = dict()
+        self.rdeps = {}
         url = self.makeurl(['build', self.project, 'standard', self.arch, '_builddepinfo'], {'view': 'revpkgnames'})
         x = ET.fromstring(self.cached_GET(url))
         for pnode in x.findall('package'):
@@ -151,12 +156,11 @@ class BiArchTool(ToolBase.ToolBase):
         resulturl = self.makeurl(['build', self.project, '_result'])
         result = ET.fromstring(self.cached_GET(resulturl))
 
-        packages = set()
-
-        for n in result.findall("./result[@arch='{}']/status".format(self.arch)):
-            if n.get('code') not in ('disabled', 'excluded'):
-                packages.add(n.get('package'))
-
+        packages = {
+            n.get('package')
+            for n in result.findall(f"./result[@arch='{self.arch}']/status")
+            if n.get('code') not in ('disabled', 'excluded')
+        }
         for pkg in sorted(packages):
             changed = False
 
@@ -167,7 +171,7 @@ class BiArchTool(ToolBase.ToolBase):
             pkgmeta = self.package_metas[pkg]
 
             for build in pkgmeta.findall("./build"):
-                for n in build.findall("./enable[@arch='{}']".format(self.arch)):
+                for n in build.findall(f"./enable[@arch='{self.arch}']"):
                     logger.debug("disable %s", pkg)
                     build.remove(n)
                     changed = True
@@ -220,7 +224,7 @@ class BiArchTool(ToolBase.ToolBase):
 
     def enable_baselibs_packages(self, force=False, wipebinaries=False):
         self._init_biarch_packages()
-        todo = dict()
+        todo = {}
         for pkg in self.packages:
             logger.debug("processing %s", pkg)
             if pkg not in self.package_metas:
@@ -233,32 +237,17 @@ class BiArchTool(ToolBase.ToolBase):
             must_disable = None
             changed = None
 
-            for n in pkgmeta.findall("./build/enable[@arch='{}']".format(self.arch)):
+            for _ in pkgmeta.findall(f"./build/enable[@arch='{self.arch}']"):
                 is_enabled = True
-            for n in pkgmeta.findall("./build/disable[@arch='{}']".format(self.arch)):
+            for _ in pkgmeta.findall(f"./build/disable[@arch='{self.arch}']"):
                 is_disabled = True
 
             if force:
                 must_disable = False
 
             if must_disable is None:
-                if self.is_biarch_recursive(pkg):
-                    must_disable = False
-                else:
-                    must_disable = True
-
-            if not must_disable:
-                if is_disabled:
-                    logger.info('enabling %s for %s', pkg, self.arch)
-                    for build in pkgmeta.findall("./build"):
-                        for n in build.findall("./disable[@arch='{}']".format(self.arch)):
-                            build.remove(n)
-                            changed = True
-                    if not changed:
-                        logger.error('build tag not found in %s/%s!?', pkg, self.arch)
-                else:
-                    logger.debug('%s already enabled for %s', pkg, self.arch)
-            elif must_disable:
+                must_disable = not self.is_biarch_recursive(pkg)
+            if must_disable:
                 if not is_disabled:
                     logger.info('disabling %s for %s', pkg, self.arch)
                     bn = pkgmeta.find('build')
@@ -269,10 +258,20 @@ class BiArchTool(ToolBase.ToolBase):
                 else:
                     logger.debug('%s already disabled for %s', pkg, self.arch)
 
+            elif is_disabled:
+                logger.info('enabling %s for %s', pkg, self.arch)
+                for build in pkgmeta.findall("./build"):
+                    for n in build.findall(f"./disable[@arch='{self.arch}']"):
+                        build.remove(n)
+                        changed = True
+                if not changed:
+                    logger.error('build tag not found in %s/%s!?', pkg, self.arch)
+            else:
+                logger.debug('%s already enabled for %s', pkg, self.arch)
             if is_enabled:
                 logger.info('removing explicit enable %s for %s', pkg, self.arch)
                 for build in pkgmeta.findall("./build"):
-                    for n in build.findall("./enable[@arch='{}']".format(self.arch)):
+                    for n in build.findall(f"./enable[@arch='{self.arch}']"):
                         build.remove(n)
                         changed = True
                 if not changed:
@@ -291,7 +290,11 @@ class BiArchTool(ToolBase.ToolBase):
                 if self.caching:
                     self._invalidate__cached_GET(pkgmetaurl)
 
-                if wipebinaries and pkgmeta.find("./build/disable[@arch='{}']".format(self.arch)) is not None:
+                if (
+                    wipebinaries
+                    and pkgmeta.find(f"./build/disable[@arch='{self.arch}']")
+                    is not None
+                ):
                     logger.debug("wiping %s", pkg)
                     self.http_POST(self.makeurl(['build', self.project], {
                         'cmd': 'wipe',
@@ -308,14 +311,18 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
 
     def get_optparser(self):
         parser = ToolBase.CommandLineInterface.get_optparser(self)
-        parser.add_option('-p', '--project', dest='project', metavar='PROJECT',
-                          help='project to process (default: %s)' % FACTORY,
-                          default=FACTORY)
+        parser.add_option(
+            '-p',
+            '--project',
+            dest='project',
+            metavar='PROJECT',
+            help=f'project to process (default: {FACTORY})',
+            default=FACTORY,
+        )
         return parser
 
     def setup_tool(self):
-        tool = BiArchTool(self.options.project)
-        return tool
+        return BiArchTool(self.options.project)
 
     def _select_packages(self, all, packages):
         if packages:

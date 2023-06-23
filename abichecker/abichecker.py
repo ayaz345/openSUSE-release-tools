@@ -78,7 +78,7 @@ LibResult = namedtuple('LibResult', ('src_repo', 'src_lib', 'dst_repo', 'dst_lib
 class DistUrlMismatch(Exception):
     def __init__(self, disturl, md5):
         Exception.__init__(self)
-        self.msg = 'disturl mismatch has: %s wanted ...%s'%(disturl, md5)
+        self.msg = f'disturl mismatch has: {disturl} wanted ...{md5}'
 
     def __str__(self):
         return self.msg
@@ -87,7 +87,7 @@ class DistUrlMismatch(Exception):
 class SourceBroken(Exception):
     def __init__(self, project, package):
         Exception.__init__(self)
-        self.msg = '%s/%s has broken sources, needs rebase'%(project, package)
+        self.msg = f'{project}/{package} has broken sources, needs rebase'
 
     def __str__(self):
         return self.msg
@@ -96,7 +96,7 @@ class SourceBroken(Exception):
 class NoBuildSuccess(Exception):
     def __init__(self, project, package, md5):
         Exception.__init__(self)
-        self.msg = '%s/%s(%s) had no successful build'%(project, package, md5)
+        self.msg = f'{project}/{package}({md5}) had no successful build'
 
     def __str__(self):
         return self.msg
@@ -105,7 +105,7 @@ class NoBuildSuccess(Exception):
 class NotReadyYet(Exception):
     def __init__(self, project, package, reason):
         Exception.__init__(self)
-        self.msg = '%s/%s not ready yet: %s'%(project, package, reason)
+        self.msg = f'{project}/{package} not ready yet: {reason}'
 
     def __str__(self):
         return self.msg
@@ -188,7 +188,7 @@ class ABIChecker(ReviewBot.ReviewBot):
     def check_source_submission(self, src_project, src_package, src_rev, dst_project, dst_package):
 
         # happens for maintenance incidents
-        if dst_project == None and src_package == 'patchinfo':
+        if dst_project is None and src_package == 'patchinfo':
             return None
 
         if dst_project in PROJECT_BLACKLIST:
@@ -218,14 +218,14 @@ class ABIChecker(ReviewBot.ReviewBot):
         dst_srcinfo = self.get_sourceinfo(dst_project, dst_package)
         self.logger.debug('dest sourceinfo %s', pformat(dst_srcinfo))
         if dst_srcinfo is None:
-            msg = "%s/%s seems to be a new package, no need to review"%(dst_project, dst_package)
+            msg = f"{dst_project}/{dst_package} seems to be a new package, no need to review"
             self.logger.info(msg)
             self.reports.append(report)
             return True
         src_srcinfo = self.get_sourceinfo(src_project, src_package, src_rev)
         self.logger.debug('src sourceinfo %s', pformat(src_srcinfo))
         if src_srcinfo is None:
-            msg = "%s/%s@%s does not exist!? can't check"%(src_project, src_package, src_rev)
+            msg = f"{src_project}/{src_package}@{src_rev} does not exist!? can't check"
             self.logger.error(msg)
             self.text_summary += msg + "\n"
             self.reports.append(report)
@@ -305,7 +305,7 @@ class ABIChecker(ReviewBot.ReviewBot):
                 if dst_libs is None:
                     continue
             except DistUrlMismatch as e:
-                self.logger.error("%s/%s %s/%s: %s"%(dst_project, dst_package, mr.dstrepo, mr.arch, e))
+                self.logger.error(f"{dst_project}/{dst_package} {mr.dstrepo}/{mr.arch}: {e}")
                 if ret == True: # need to check again
                     ret = None
                 continue
@@ -315,7 +315,7 @@ class ABIChecker(ReviewBot.ReviewBot):
                 continue
             except FetchError as e:
                 self.logger.error(e)
-                if ret == True: # need to check again
+                if ret: # need to check again
                     ret = None
                 continue
 
@@ -326,7 +326,7 @@ class ABIChecker(ReviewBot.ReviewBot):
                         self.text_summary += "*Warning*: the submission does not contain any libs anymore\n\n"
                     continue
             except DistUrlMismatch as e:
-                self.logger.error("%s/%s %s/%s: %s"%(src_project, src_package, mr.srcrepo, mr.arch, e))
+                self.logger.error(f"{src_project}/{src_package} {mr.srcrepo}/{mr.arch}: {e}")
                 if ret == True: # need to check again
                     ret = None
                 continue
@@ -336,12 +336,12 @@ class ABIChecker(ReviewBot.ReviewBot):
                 continue
             except FetchError as e:
                 self.logger.error(e)
-                if ret == True: # need to check again
+                if ret: # need to check again
                     ret = None
                 continue
 
             # create reverse index for aliases in the source project
-            src_aliases = dict()
+            src_aliases = {}
             for lib in src_libs.keys():
                 for a in src_libs[lib]:
                     src_aliases.setdefault(a, set()).add(lib)
@@ -389,19 +389,19 @@ class ABIChecker(ReviewBot.ReviewBot):
 
                 # run abichecker
                 if m \
-                    and self.run_abi_dumper(old_dump, old_base, old, dst_libdebug[old]) \
-                    and self.run_abi_dumper(new_dump, new_base, new, src_libdebug[new]):
-                        reportfn = os.path.join(CACHEDIR, htmlreport)
-                        r = self.run_abi_checker(m.group(1), old_dump, new_dump, reportfn)
-                        if r is not None:
-                            self.logger.debug('report saved to %s, compatible: %d', reportfn, r)
-                            libresults.append(LibResult(mr.srcrepo, os.path.basename(old), mr.dstrepo, os.path.basename(new), mr.arch, htmlreport, r))
-                            if overall is None:
-                                overall = r
-                            elif overall == True and r == False:
-                                overall = r
+                        and self.run_abi_dumper(old_dump, old_base, old, dst_libdebug[old]) \
+                        and self.run_abi_dumper(new_dump, new_base, new, src_libdebug[new]):
+                    reportfn = os.path.join(CACHEDIR, htmlreport)
+                    r = self.run_abi_checker(m.group(1), old_dump, new_dump, reportfn)
+                    if r is not None:
+                        self.logger.debug('report saved to %s, compatible: %d', reportfn, r)
+                        libresults.append(LibResult(mr.srcrepo, os.path.basename(old), mr.dstrepo, os.path.basename(new), mr.arch, htmlreport, r))
+                        if overall is None:
+                            overall = r
+                        elif overall == True and r == False:
+                            overall = r
                 else:
-                    self.logger.error('failed to compare %s <> %s'%(old,new))
+                    self.logger.error(f'failed to compare {old} <> {new}')
                     self.text_summary += "**Error**: ABI check failed on %s vs %s\n\n"%(old, new)
                     if ret == True: # need to check again
                         ret = None
@@ -428,8 +428,11 @@ class ABIChecker(ReviewBot.ReviewBot):
         originpackage = None
 
         # find the maintenance project
-        url = osc.core.makeurl(self.apiurl, ('search', 'project', 'id'),
-            "match=(maintenance/maintains/@project='%s'+and+attribute/@name='%s')"%(dst_project, osc.conf.config['maintenance_attribute']))
+        url = osc.core.makeurl(
+            self.apiurl,
+            ('search', 'project', 'id'),
+            f"match=(maintenance/maintains/@project='{dst_project}'+and+attribute/@name='{osc.conf.config['maintenance_attribute']}')",
+        )
         root = ET.parse(osc.core.http_GET(url)).getroot()
         if root is not None:
             node = root.find('project')
@@ -448,7 +451,7 @@ class ABIChecker(ReviewBot.ReviewBot):
                         if node.get('code') != 'disabled':
                             alldisabled = False
                     if alldisabled:
-                        self.logger.debug("all repos disabled, using originproject %s"%originproject)
+                        self.logger.debug(f"all repos disabled, using originproject {originproject}")
                     else:
                         originproject = None
                 else:
@@ -456,37 +459,38 @@ class ABIChecker(ReviewBot.ReviewBot):
                     # packages are only a link to packagename.incidentnr
                     (linkprj, linkpkg) = self._get_linktarget(dst_project, pkg)
                     if linkpkg is not None and linkprj == dst_project:
-                        self.logger.debug("%s/%s links to %s"%(dst_project, pkg, linkpkg))
+                        self.logger.debug(f"{dst_project}/{pkg} links to {linkpkg}")
                         regex = re.compile(r'.*\.(\d+)$')
                         m = regex.match(linkpkg)
                         if m is None:
-                            raise MaintenanceError("%s/%s -> %s/%s is not a proper maintenance link (must match /%s/)"%(dst_project, pkg, linkprj, linkpkg, regex.pattern))
-                        incident = m.group(1)
-                        self.logger.debug("is maintenance incident %s"%incident)
+                            raise MaintenanceError(
+                                f"{dst_project}/{pkg} -> {linkprj}/{linkpkg} is not a proper maintenance link (must match /{regex.pattern}/)"
+                            )
+                        incident = m[1]
+                        self.logger.debug(f"is maintenance incident {incident}")
 
-                        originproject = "%s:%s"%(mproject, incident)
-                        originpackage = pkg+'.'+dst_project.replace(':', '_')
+                        originproject = f"{mproject}:{incident}"
+                        originpackage = f'{pkg}.' + dst_project.replace(':', '_')
 
                         origin_srcinfo = self.get_sourceinfo(originproject, originpackage)
                         if origin_srcinfo is None:
-                            raise MaintenanceError("%s/%s invalid"%(originproject, originpackage))
+                            raise MaintenanceError(f"{originproject}/{originpackage} invalid")
 
                         # find the map of maintenance incident repos to destination repos
                         originrepos = self.findrepos(originproject, origin_srcinfo, dst_project, dst_srcinfo)
-                        mapped = dict()
-                        for mr in originrepos:
-                            mapped[(mr.dstrepo, mr.arch)] = mr
-
+                        mapped = {(mr.dstrepo, mr.arch): mr for mr in originrepos}
                         self.logger.debug("mapping: %s", pformat(mapped))
 
                         # map the repos of the original request to the maintenance incident repos
                         matchrepos = set()
                         for mr in myrepos:
-                            if not (mr.dstrepo, mr.arch) in mapped:
+                            if (mr.dstrepo, mr.arch) not in mapped:
                                 # sometimes a previously released maintenance
                                 # update didn't cover all architectures. We can
                                 # only ignore that then.
-                                self.logger.warning("couldn't find repo %s/%s in %s/%s"%(mr.dstrepo, mr.arch, originproject, originpackage))
+                                self.logger.warning(
+                                    f"couldn't find repo {mr.dstrepo}/{mr.arch} in {originproject}/{originpackage}"
+                                )
                                 continue
                             matchrepos.add(MR(mr.srcrepo, mapped[(mr.dstrepo, mr.arch)].srcrepo, mr.arch))
 
@@ -501,8 +505,7 @@ class ABIChecker(ReviewBot.ReviewBot):
         """Return previous comments (should be one)."""
         comments = self.commentapi.get_comments(request_id=req.reqid)
         for c in comments.values():
-            m = comment_marker_re.match(c['comment'])
-            if m:
+            if m := comment_marker_re.match(c['comment']):
                 return c['id'], m.group('state'), m.group('result')
         return None, None, None
 
@@ -550,10 +553,12 @@ class ABIChecker(ReviewBot.ReviewBot):
             state = 'seen'
 
         self.save_reports_to_db(req, state, result)
-        if ret is not None and self.text_summary == '':
+        if ret is not None and not self.text_summary:
             # if for some reason save_reports_to_db didn't produce a
             # summary we add one
-            self.text_summary = "ABI checker result: [%s](%s/request/%s)"%(result, WEB_URL, req.reqid)
+            self.text_summary = (
+                f"ABI checker result: [{result}]({WEB_URL}/request/{req.reqid})"
+            )
 
         if commentid and not self.dryrun:
             self.commentapi.delete(commentid)
@@ -640,10 +645,13 @@ class ABIChecker(ReviewBot.ReviewBot):
         if not self.text_summary:
             return
 
-        msg = "<!-- abichecker state=%s%s -->\n"%(state, ' result=%s'%result if result else '')
+        msg = "<!-- abichecker state=%s%s -->\n" % (
+            state,
+            f' result={result}' if result else '',
+        )
         msg += self.text_summary
 
-        self.logger.info("add comment: %s"%msg)
+        self.logger.info(f"add comment: {msg}")
         if not self.dryrun:
             #self.commentapi.delete_from_where_user(self.review_user, request_id = req.reqid)
             self.commentapi.add_comment(request_id = req.reqid, comment = msg)
@@ -672,80 +680,80 @@ class ABIChecker(ReviewBot.ReviewBot):
         self.logger.debug(cmd)
         r = subprocess.Popen(cmd, close_fds=True, cwd=CACHEDIR).wait()
         if r != 0:
-            self.logger.error("failed to dump %s!"%filename)
+            self.logger.error(f"failed to dump {filename}!")
             # XXX: record error
             return False
         return True
 
     def extract(self, project, package, srcinfo, repo, arch):
-            # fetch cpio headers
-            # check file lists for library packages
-            fetchlist, liblist, debuglist = self.compute_fetchlist(project, package, srcinfo, repo, arch)
+        # fetch cpio headers
+        # check file lists for library packages
+        fetchlist, liblist, debuglist = self.compute_fetchlist(project, package, srcinfo, repo, arch)
 
-            if not fetchlist:
-                msg = "no libraries found in %s/%s %s/%s"%(project, package, repo, arch)
-                self.logger.info(msg)
-                return None, None
+        if not fetchlist:
+            msg = f"no libraries found in {project}/{package} {repo}/{arch}"
+            self.logger.info(msg)
+            return None, None
 
-            # mtimes in cpio are not the original ones, so we need to fetch
-            # that separately :-(
-            mtimes= self._getmtimes(project, package, repo, arch)
+        # mtimes in cpio are not the original ones, so we need to fetch
+        # that separately :-(
+        mtimes= self._getmtimes(project, package, repo, arch)
 
-            self.logger.debug("fetchlist %s", pformat(fetchlist))
-            self.logger.debug("liblist %s", pformat(liblist))
-            self.logger.debug("debuglist %s", pformat(debuglist))
+        self.logger.debug("fetchlist %s", pformat(fetchlist))
+        self.logger.debug("liblist %s", pformat(liblist))
+        self.logger.debug("debuglist %s", pformat(debuglist))
 
-            debugfiles = debuglist.values()
+        debugfiles = debuglist.values()
 
-            # fetch binary rpms
-            downloaded = self.download_files(project, package, repo, arch, fetchlist, mtimes)
+        # fetch binary rpms
+        downloaded = self.download_files(project, package, repo, arch, fetchlist, mtimes)
 
-            # extract binary rpms
-            tmpfile = os.path.join(CACHEDIR, "cpio")
-            for fn in fetchlist:
-                self.logger.debug("extract %s"%fn)
-                with open(tmpfile, 'wb') as tmpfd:
-                    if fn not in downloaded:
-                        raise FetchError("%s was not downloaded!"%fn)
-                    self.logger.debug(downloaded[fn])
-                    r = subprocess.call(['rpm2cpio', downloaded[fn]], stdout=tmpfd, close_fds=True)
-                    if r != 0:
-                        raise FetchError("failed to extract %s!"%fn)
-                    tmpfd.close()
-                    os.unlink(downloaded[fn])
-                    cpio = CpioRead(tmpfile)
-                    cpio.read()
-                    for ch in cpio:
-                        fn = ch.filename.decode('utf-8')
-                        if fn.startswith('./'): # rpm payload is relative
-                            fn = fn[1:]
-                        self.logger.debug("cpio fn %s", fn)
-                        if fn not in liblist and fn not in debugfiles:
-                            continue
-                        dst = os.path.join(UNPACKDIR, project, package, repo, arch)
-                        dst += fn
-                        if not os.path.exists(os.path.dirname(dst)):
-                            os.makedirs(os.path.dirname(dst))
-                        self.logger.debug("dst %s", dst)
-                        # the filehandle in the cpio archive is private so
-                        # open it again
-                        with open(tmpfile, 'rb') as cpiofh:
-                            cpiofh.seek(ch.dataoff, os.SEEK_SET)
-                            with open(dst, 'wb') as fh:
-                                while True:
-                                    buf = cpiofh.read(4096)
-                                    if buf is None or buf == b'':
-                                        break
-                                    fh.write(buf)
-            os.unlink(tmpfile)
+        # extract binary rpms
+        tmpfile = os.path.join(CACHEDIR, "cpio")
+        for fn in fetchlist:
+            self.logger.debug(f"extract {fn}")
+            with open(tmpfile, 'wb') as tmpfd:
+                if fn not in downloaded:
+                    raise FetchError(f"{fn} was not downloaded!")
+                self.logger.debug(downloaded[fn])
+                r = subprocess.call(['rpm2cpio', downloaded[fn]], stdout=tmpfd, close_fds=True)
+                if r != 0:
+                    raise FetchError(f"failed to extract {fn}!")
+                tmpfd.close()
+                os.unlink(downloaded[fn])
+                cpio = CpioRead(tmpfile)
+                cpio.read()
+                for ch in cpio:
+                    fn = ch.filename.decode('utf-8')
+                    if fn.startswith('./'): # rpm payload is relative
+                        fn = fn[1:]
+                    self.logger.debug("cpio fn %s", fn)
+                    if fn not in liblist and fn not in debugfiles:
+                        continue
+                    dst = os.path.join(UNPACKDIR, project, package, repo, arch)
+                    dst += fn
+                    if not os.path.exists(os.path.dirname(dst)):
+                        os.makedirs(os.path.dirname(dst))
+                    self.logger.debug("dst %s", dst)
+                    # the filehandle in the cpio archive is private so
+                    # open it again
+                    with open(tmpfile, 'rb') as cpiofh:
+                        cpiofh.seek(ch.dataoff, os.SEEK_SET)
+                        with open(dst, 'wb') as fh:
+                            while True:
+                                buf = cpiofh.read(4096)
+                                if buf is None or buf == b'':
+                                    break
+                                fh.write(buf)
+        os.unlink(tmpfile)
 
-            return liblist, debuglist
+        return liblist, debuglist
 
     def download_files(self, project, package, repo, arch, filenames, mtimes):
-        downloaded = dict()
+        downloaded = {}
         for fn in filenames:
             if fn not in mtimes:
-                raise FetchError("missing mtime information for %s, can't check"% fn)
+                raise FetchError(f"missing mtime information for {fn}, can't check")
             repodir = os.path.join(DOWNLOADS, package, project, repo)
             if not os.path.exists(repodir):
                 os.makedirs(repodir)
@@ -767,11 +775,11 @@ class ABIChecker(ReviewBot.ReviewBot):
             h = self.ts.hdrFromFdno(fd)
         except rpm.error as e:
             if str(e) == "public key not available":
-                print(str(e))
+                print(e)
             if str(e) == "public key not trusted":
-                print(str(e))
+                print(e)
             if str(e) == "error reading package header":
-                print(str(e))
+                print(e)
             h = None
         return h
 
@@ -781,7 +789,7 @@ class ABIChecker(ReviewBot.ReviewBot):
         try:
             r = osc.core.http_GET(u)
         except HTTPError as e:
-            raise FetchError('failed to fetch header information: %s'%e)
+            raise FetchError(f'failed to fetch header information: {e}')
         tmpfile = NamedTemporaryFile(prefix="cpio-", delete=False)
         for chunk in r:
             tmpfile.write(chunk)
@@ -799,10 +807,9 @@ class ABIChecker(ReviewBot.ReviewBot):
                 fh.seek(ch.dataoff, os.SEEK_SET)
                 h = self.readRpmHeaderFD(fh)
                 if h is None:
-                    raise FetchError("failed to read rpm header for %s"%ch.filename)
-                m = rpm_re.match(ch.filename.decode('utf-8'))
-                if m:
-                    yield m.group(1), h
+                    raise FetchError(f"failed to read rpm header for {ch.filename}")
+                if m := rpm_re.match(ch.filename.decode('utf-8')):
+                    yield (m[1], h)
         os.unlink(tmpfile.name)
 
     def _getmtimes(self, prj, pkg, repo, arch):
@@ -827,9 +834,8 @@ class ABIChecker(ReviewBot.ReviewBot):
             return ET.parse(osc.core.http_GET(url)).getroot()
         except HTTPError as e:
             if e.code != 404:
-                self.logger.error('ERROR in URL %s [%s]' % (url, e))
+                self.logger.error(f'ERROR in URL {url} [{e}]')
                 raise
-            pass
         return None
 
     def get_buildsuccess_repos(self, src_project, tgt_project, src_package, rev):
@@ -877,7 +883,7 @@ class ABIChecker(ReviewBot.ReviewBot):
     def ensure_settled(self, src_project, src_srcinfo, matchrepos):
         """ make sure current build state is final so we're not
         tricked with half finished results"""
-        rmap = dict()
+        rmap = {}
         results = osc.core.get_package_results(self.apiurl,
                 src_project, src_srcinfo.package,
                 repository = [ mr.srcrepo for mr in matchrepos],
@@ -889,17 +895,17 @@ class ABIChecker(ReviewBot.ReviewBot):
                 rmap[(res['repository'], res['arch'])] = res
 
         for mr in matchrepos:
-            if not (mr.srcrepo, mr.arch) in rmap:
-                self.logger.warning("%s/%s had no build success"%(mr.srcrepo, mr.arch))
+            if (mr.srcrepo, mr.arch) not in rmap:
+                self.logger.warning(f"{mr.srcrepo}/{mr.arch} had no build success")
                 raise NotReadyYet(src_project, src_srcinfo.package, "no result")
             if rmap[(mr.srcrepo, mr.arch)]['dirty']:
-                self.logger.warning("%s/%s dirty"%(mr.srcrepo, mr.arch))
+                self.logger.warning(f"{mr.srcrepo}/{mr.arch} dirty")
                 raise NotReadyYet(src_project, src_srcinfo.package, "dirty")
             code = rmap[(mr.srcrepo, mr.arch)]['code']
             if code == 'broken':
                 raise SourceBroken(src_project, src_srcinfo.package)
-            if code != 'succeeded' and code != 'locked' and code != 'excluded':
-                self.logger.warning("%s/%s not succeeded (%s)"%(mr.srcrepo, mr.arch, code))
+            if code not in ['succeeded', 'locked', 'excluded']:
+                self.logger.warning(f"{mr.srcrepo}/{mr.arch} not succeeded ({code})")
                 raise NotReadyYet(src_project, src_srcinfo.package, code)
 
     def findrepos(self, src_project, src_srcinfo, dst_project, dst_srcinfo):
@@ -928,7 +934,7 @@ class ABIChecker(ReviewBot.ReviewBot):
                 name = repo.attrib['name']
                 path = repo.findall('path')
                 if path is None or len(path) != 1:
-                    self.logger.error("repo %s has more than one path"%name)
+                    self.logger.error(f"repo {name} has more than one path")
                     continue
                 prj = path[0].attrib['project']
                 if prj == 'openSUSE:Tumbleweed':
@@ -958,8 +964,8 @@ class ABIChecker(ReviewBot.ReviewBot):
         if not srcrepos:
             raise NoBuildSuccess(src_project, src_srcinfo.package, src_srcinfo.verifymd5)
         for mr in matchrepos:
-            if not (mr.srcrepo, arch) in srcrepos:
-                self.logger.error("%s/%s had no build success"%(mr.srcrepo, arch))
+            if (mr.srcrepo, arch) not in srcrepos:
+                self.logger.error(f"{mr.srcrepo}/{arch} had no build success")
                 raise NoBuildSuccess(src_project, src_srcinfo.package, src_srcinfo.verifymd5)
 
         return matchrepos
@@ -970,9 +976,7 @@ class ABIChecker(ReviewBot.ReviewBot):
         return os.path.basename(disturl).split('-')[0]
 
     def disturl_matches_md5(self, disturl, md5):
-        if self._md5_disturl(disturl) != md5:
-            return False
-        return True
+        return self._md5_disturl(disturl) == md5
 
     # this is a bit magic. OBS allows to take the disturl md5 from the package
     # and query the source info for that. We will then get the verify md5 that
@@ -982,9 +986,7 @@ class ABIChecker(ReviewBot.ReviewBot):
         info = self.get_sourceinfo(prj, srcinfo.package, rev = md5)
         self.logger.debug(pformat(srcinfo))
         self.logger.debug(pformat(info))
-        if info.verifymd5 == srcinfo.verifymd5:
-            return True
-        return False
+        return info.verifymd5 == srcinfo.verifymd5
 
     def compute_fetchlist(self, prj, pkg, srcinfo, repo, arch):
         """ scan binary rpms of the specified repo for libraries.

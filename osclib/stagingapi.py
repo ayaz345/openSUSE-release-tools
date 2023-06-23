@@ -65,7 +65,7 @@ class StagingAPI(object):
         self._ring_packages = None
         self._ring_packages_for_links = None
         self._packages_staged = None
-        self._package_metas = dict()
+        self._package_metas = {}
         self._supersede = False
         self._package_disabled = {}
         self._is_staging_manager = None
@@ -93,13 +93,8 @@ class StagingAPI(object):
     @property
     def rings(self):
         if self._rings is None:
-
-            # If the project support rings, inititialize some variables.
             if self.crings:
-                self._rings = (
-                    '{}:0-Bootstrap'.format(self.crings),
-                    '{}:1-MinimalX'.format(self.crings)
-                )
+                self._rings = f'{self.crings}:0-Bootstrap', f'{self.crings}:1-MinimalX'
             else:
                 self._rings = []
 
@@ -162,14 +157,12 @@ class StagingAPI(object):
         retry_sleep_seconds = 1
         while True:
             try:
-                if data is not None:
-                    return func(url, data=data)
-                return func(url)
+                return func(url, data=data) if data is not None else func(url)
             except HTTPError as e:
                 if 500 <= e.code <= 599:
-                    print('Error {}, retrying {} in {}s'.format(e.code, url, retry_sleep_seconds))
+                    print(f'Error {e.code}, retrying {url} in {retry_sleep_seconds}s')
                 elif e.code == 400 and e.reason == 'service in progress':
-                    print('Service in progress, retrying {} in {}s'.format(url, retry_sleep_seconds))
+                    print(f'Service in progress, retrying {url} in {retry_sleep_seconds}s')
                 else:
                     raise e
                 time.sleep(retry_sleep_seconds)
@@ -253,9 +246,7 @@ class StagingAPI(object):
         return packages_staged
 
     def extract_specfile_short(self, filelist):
-        packages = [spec[:-5] for spec in filelist if re.search(r'\.spec$', spec)]
-
-        return packages
+        return [spec[:-5] for spec in filelist if re.search(r'\.spec$', spec)]
 
     def get_filelist_for_package(self, pkgname, project, expand=None, extension=None):
         """
@@ -278,10 +269,12 @@ class StagingAPI(object):
             url = self.makeurl(['source', project, pkgname])
         try:
             content = self.retried_GET(url).read()
-            for entry in ET.fromstring(content).findall('entry'):
-                filelist.append(entry.attrib['name'])
+            filelist.extend(
+                entry.attrib['name']
+                for entry in ET.fromstring(content).findall('entry')
+            )
         except HTTPError as err:
-            if err.code == 404 or err.code == 400:
+            if err.code in [404, 400]:
                 # The package we were supposed to query does not exist
                 # or the sources are broken (as we link into branches it can happen)
                 # we can pass this up and return the empty filelist
@@ -311,12 +304,9 @@ class StagingAPI(object):
         :return list of known staging projects
         """
 
-        result = []
         url = self.makeurl(['staging', self.project, 'staging_projects'])
         status = ET.parse(self.retried_GET(url)).getroot()
-        for project in status.findall('staging_project'):
-            result.append(project.get('name'))
-        return result
+        return [project.get('name') for project in status.findall('staging_project')]
 
     def extract_staging_short(self, p):
         if len(self.cstaging) == 0 or not p.startswith(self.cstaging):
@@ -325,9 +315,7 @@ class StagingAPI(object):
         return p[prefix:]
 
     def prj_from_short(self, name):
-        if name.startswith(self.cstaging):
-            return name
-        return '{}:{}'.format(self.cstaging, name)
+        return name if name.startswith(self.cstaging) else f'{self.cstaging}:{name}'
 
     def get_staging_projects_short(self, adi=False):
         """
@@ -377,27 +365,30 @@ class StagingAPI(object):
         :param by_group, by_user, by_project: review type
         """
 
-        message = '' if not message else message
+        if req := get_request(self.apiurl, str(request_id)):
+            message = '' if not message else message
 
-        req = get_request(self.apiurl, str(request_id))
-        if not req:
-            raise oscerr.WrongArgs('Request {} not found'.format(request_id))
-
-        for review in req.reviews:
-            if review.by_group == by_group and \
-               review.by_user == by_user and \
-               review.by_project == by_project and \
-               review.state == 'new':
-
-                # call osc's function
-                return change_review_state(self.apiurl, str(request_id),
-                                           newstate,
-                                           message=message,
-                                           by_group=by_group,
-                                           by_user=by_user,
-                                           by_project=by_project)
-
-        return False
+            return next(
+                (
+                    change_review_state(
+                        self.apiurl,
+                        str(request_id),
+                        newstate,
+                        message=message,
+                        by_group=by_group,
+                        by_user=by_user,
+                        by_project=by_project,
+                    )
+                    for review in req.reviews
+                    if review.by_group == by_group
+                    and review.by_user == by_user
+                    and review.by_project == by_project
+                    and review.state == 'new'
+                ),
+                False,
+            )
+        else:
+            raise oscerr.WrongArgs(f'Request {request_id} not found')
 
     @memoize(session=True)
     def source_info(self, project, package, rev=None):
@@ -434,7 +425,7 @@ class StagingAPI(object):
         request_id = int(request.get('id'))
         action = request.find('action')
         if action is None:
-            msg = 'Request {} has no action'.format(request_id)
+            msg = f'Request {request_id} has no action'
             raise oscerr.WrongArgs(msg)
 
         # Where are we targeting the package
@@ -462,37 +453,28 @@ class StagingAPI(object):
 
                 if (request_new.find('action').get('type') == 'delete' and
                         request_old.find('action').get('type') == 'delete'):
-                    # Both delete requests.
                     if replace_old:
                         # Pointless since identical requests, but user desires.
                         return stage_info, None
-                    else:
                         # Keep the original request and decline this identical one.
-                        message = 'sr#{} is an identical delete and is already staged'.format(
-                            request_old.get('id'))
-                        self.do_change_review_state(request_id, 'declined',
-                                                    by_group=self.cstaging_group, message=message)
-                        return stage_info, True
+                    message = f"sr#{request_old.get('id')} is an identical delete and is already staged"
+                    self.do_change_review_state(request_id, 'declined',
+                                                by_group=self.cstaging_group, message=message)
+                    return stage_info, True
 
                 if (request_new.find('action').get('type') !=
                         request_old.find('action').get('type')):
-                    # One delete and one submit.
                     if replace_old:
-                        if self.ring_packages.get(target_package):
-                            # Since deletes are considered ring then both requests are ring and a
-                            # supersede is fine.
-                            return stage_info, None
-                        else:
-                            # Unselect old request and do no stage the new request to allow it to be
-                            # staged via the normal process to find the appropriate staging project.
-                            return stage_info, 'unstage'
-                    else:
+                        return (
+                            (stage_info, None)
+                            if self.ring_packages.get(target_package)
+                            else (stage_info, 'unstage')
+                        )
                         # Decline new type and indicate that old request should be revoked first.
-                        message = 'sr#{} of a different type should be revoked first'.format(
-                            request_old.get('id'))
-                        self.do_change_review_state(request_id, 'declined',
-                                                    by_group=self.cstaging_group, message=message)
-                        return stage_info, True
+                    message = f"sr#{request_old.get('id')} of a different type should be revoked first"
+                    self.do_change_review_state(request_id, 'declined',
+                                                by_group=self.cstaging_group, message=message)
+                    return stage_info, True
 
                 source_info_new = self.source_info_request(request_new)
                 source_info_old = self.source_info_request(request_old)
@@ -502,8 +484,7 @@ class StagingAPI(object):
                     return stage_info, None
 
                 source_same = source_info_new.get('verifymd5') == source_info_old.get('verifymd5')
-                message = 'sr#{} has {} source and is already staged'.format(
-                    request_old.get('id'), 'same' if source_same else 'different')
+                message = f"sr#{request_old.get('id')} has {'same' if source_same else 'different'} source and is already staged"
                 if source_same:
                     # Keep the original request and decline this identical one.
                     self.do_change_review_state(request_id, 'declined',
@@ -511,7 +492,7 @@ class StagingAPI(object):
                 else:
                     # Supersedes request is from the same project
                     if request_new.find('./action/source').get('project') == request_old.find('./action/source').get('project'):
-                        message = 'sr#{} has newer source and is from the same project'.format(request_new.get('id'))
+                        message = f"sr#{request_new.get('id')} has newer source and is from the same project"
 
                         self.rm_from_prj(stage_info['prj'], request_id=stage_info['rq_id'])
                         self.do_change_review_state(stage_info['rq_id'], 'declined',
@@ -537,7 +518,7 @@ class StagingAPI(object):
 
         # do not process the request has been excluded
         requests_ignored = self.get_ignored_requests()
-        requests_ignored = [rq for rq in requests_ignored.keys()]
+        requests_ignored = list(requests_ignored.keys())
         if request_id in requests_ignored:
             return False, False
 
@@ -554,12 +535,12 @@ class StagingAPI(object):
 
     @memoize(session=True)
     def get_ignored_requests(self):
-        ignore = {}
         url = self.makeurl(['staging', self.project, 'excluded_requests'])
         root = ET.parse(self.retried_GET(url)).getroot()
-        for entry in root.findall('request'):
-            ignore[int(entry.get('id'))] = entry.get('description')
-        return ignore
+        return {
+            int(entry.get('id')): entry.get('description')
+            for entry in root.findall('request')
+        }
 
     def add_ignored_request(self, request_id, comment):
         url = self.makeurl(['staging', self.project, 'excluded_requests'])
@@ -581,27 +562,23 @@ class StagingAPI(object):
         :return list of pending open review requests
         """
 
-        # not using the backlog API of staging workflow as callers
-        # expect Request objects
-
-        requests = []
-
         # xpath query, using the -m, -r, -s options
-        where = "@by_group='{}' and @state='new'".format(self.cstaging_group)
-        target = "target[@project='{}']".format(self.project)
+        where = f"@by_group='{self.cstaging_group}' and @state='new'"
+        target = f"target[@project='{self.project}']"
 
         query = {'match': f"state/@name='review' and review[{where}] and {target}"}
         if query_extra is not None:
-            query.update(query_extra)
+            query |= query_extra
         url = self.makeurl(['search', 'request'], query)
         f = http_GET(url)
         root = ET.parse(f).getroot()
 
         ignored_requests = self.get_ignored_requests()
-        for rq in root.findall('request'):
-            if not rq.get('id') in ignored_requests:
-                requests.append(rq)
-        return requests
+        return [
+            rq
+            for rq in root.findall('request')
+            if rq.get('id') not in ignored_requests
+        ]
 
     def dispatch_open_requests(self, target_requests=None):
         """
@@ -639,10 +616,14 @@ class StagingAPI(object):
         :param package: package we want to query for
         """
         data = self.project_status(project, status=False)
-        for x in data.findall('staged_requests/request'):
-            if x.get('package') == package:
-                return int(x.get('id'))
-        return None
+        return next(
+            (
+                int(x.get('id'))
+                for x in data.findall('staged_requests/request')
+                if x.get('package') == package
+            ),
+            None,
+        )
 
     def get_package_for_request_id(self, project, request_id):
         """
@@ -652,10 +633,14 @@ class StagingAPI(object):
         """
         data = self.project_status(project, status=False)
         request_id = str(request_id)
-        for x in data.findall('staged_requests/request'):
-            if x.get('id') == request_id:
-                return x.get('package')
-        return None
+        return next(
+            (
+                x.get('package')
+                for x in data.findall('staged_requests/request')
+                if x.get('id') == request_id
+            ),
+            None,
+        )
 
     def rm_from_prj(self, project, package=None, request_id=None):
         """
@@ -756,20 +741,17 @@ class StagingAPI(object):
             return True
 
         log = self.buildlog_get(project, package, repository, architecture, -4096)
-        if 'Job seems to be stuck here, killed.' in log:
-            return True
-
-        return False
+        return 'Job seems to be stuck here, killed.' in log
 
     def format_review(self, review):
         if review.get('by_group'):
-            return 'group:{}'.format(review.get('by_group'))
+            return f"group:{review.get('by_group')}"
         if review.get('by_user'):
             return review.get('by_user')
         if review.get('by_package'):
-            return 'package:{}'.format(review.get('by_package'))
+            return f"package:{review.get('by_package')}"
         if review.get('by_project'):
-            return 'project:{}'.format(review.get('by_project'))
+            return f"project:{review.get('by_project')}"
         raise oscerr.WrongArgs('Invalid review')
 
     def job_history_fail_count(self, history):
@@ -802,11 +784,10 @@ class StagingAPI(object):
         if offset < 0:
             url = makeurl(self.apiurl, path, {'view': 'entry'})
             root = ET.parse(http_GET(url)).getroot()
-            size = root.xpath('entry[@name="_log"]/@size')
-            if size:
+            if size := root.xpath('entry[@name="_log"]/@size'):
                 offset += int(size[0])
 
-        query = {'nostream': '1', 'start': '%s' % offset}
+        query = {'nostream': '1', 'start': f'{offset}'}
         if last:
             query['last'] = 1
         log = StringIO()
@@ -880,18 +861,21 @@ class StagingAPI(object):
         :param project: project to check
         :return age in days(float) of the last update
         """
-        freezetime = attribute_value_load(self.apiurl, project, 'FreezeTime')
-        if freezetime:
+        if freezetime := attribute_value_load(self.apiurl, project, 'FreezeTime'):
             freezetime = dateutil.parser.isoparse(freezetime)
             tz_info = freezetime.tzinfo
             return (datetime.now(tz_info) - freezetime).total_seconds() / 3600 / 24
         # fallback: old method
         url = self.makeurl(['source', project, '_project'], {'meta': '1'})
         root = ET.parse(http_GET(url))
-        for entry in root.findall('entry'):
-            if entry.get('name') == '_frozenlinks':
-                return (time.time() - float(entry.get('mtime'))) / 3600 / 24
-        return 100000  # quite some!
+        return next(
+            (
+                (time.time() - float(entry.get('mtime'))) / 3600 / 24
+                for entry in root.findall('entry')
+                if entry.get('name') == '_frozenlinks'
+            ),
+            100000,
+        )
 
     def rq_to_prj(self, request_id, project, remove_exclusion=False):
         """
@@ -904,7 +888,7 @@ class StagingAPI(object):
 
         req = get_request(self.apiurl, str(request_id))
         if not req:
-            raise oscerr.WrongArgs('Request {} not found'.format(request_id))
+            raise oscerr.WrongArgs(f'Request {request_id} not found')
 
         act = req.get_actions('submit')
         if act:
@@ -929,7 +913,7 @@ class StagingAPI(object):
         if act_type == 'delete':
             self.delete_to_prj(act[0], project)
 
-        if act_type == 'submit':
+        elif act_type == 'submit':
             self.submit_to_prj(req.get_actions('submit')[0], project)
 
         return True
@@ -939,8 +923,6 @@ class StagingAPI(object):
         Returns a list of packages that need to be linked to main package.
         For adi package, check specfiles according to the main package.
         """
-        ret = []
-
         # Do not trust the layout in the devel project, must to
         # guarantee the sub-pacakges are created according to the
         # specfiles of main package. Therefore, main package must be
@@ -949,14 +931,10 @@ class StagingAPI(object):
         if '_multibuild' in filelist:
             return []
 
-        mainspec = "{}{}".format(package, '.spec')
+        mainspec = f"{package}.spec"
         if mainspec in filelist:
             filelist.remove(mainspec)
-        for file in filelist:
-            if file.endswith('.spec'):
-                ret.append(file[:-5])
-
-        return ret
+        return [file[:-5] for file in filelist if file.endswith('.spec')]
 
     def linked_packages(self, package, project=None):
         if not project:
@@ -965,10 +943,10 @@ class StagingAPI(object):
         url = self.makeurl(['source', project, package], {'cmd': 'showlinked'})
         f = http_POST(url)
         root = ET.parse(f).getroot()
-        result = []
-        for package in root.findall('package'):
-            result.append({'project': package.get('project'), 'package': package.get('name')})
-        return result
+        return [
+            {'project': package.get('project'), 'package': package.get('name')}
+            for package in root.findall('package')
+        ]
 
     def _wipe_package(self, project, package):
         url = self.makeurl(['build', project],
@@ -993,7 +971,7 @@ class StagingAPI(object):
         f = http_GET(url)
         root = ET.parse(f).getroot()
         for entry in root.findall('entry'):
-            self._wipe_package(project, package + ":" + entry.get('name'))
+            self._wipe_package(project, f"{package}:" + entry.get('name'))
 
     def delete_to_prj(self, act, project):
         """
@@ -1032,10 +1010,10 @@ class StagingAPI(object):
         # If adi project, check for baselibs.conf in all specs to catch both
         # dynamically generated and static baselibs.conf.
         if self.is_adi_project(project):
-            baselibs = False
-            specfile = source_file_load(self.apiurl, src_prj, src_pkg, '{}.spec'.format(src_pkg), src_rev)
-            if specfile and 'baselibs.conf' in specfile:
-                baselibs = True
+            specfile = source_file_load(
+                self.apiurl, src_prj, src_pkg, f'{src_pkg}.spec', src_rev
+            )
+            baselibs = bool(specfile and 'baselibs.conf' in specfile)
         else:
             baselibs = None
 
@@ -1047,7 +1025,9 @@ class StagingAPI(object):
             http_PUT(url, data=ET.tostring(root))
 
             if baselibs is False:
-                specfile = source_file_load(self.apiurl, src_prj, src_pkg, '{}.spec'.format(sub_pkg), src_rev)
+                specfile = source_file_load(
+                    self.apiurl, src_prj, src_pkg, f'{sub_pkg}.spec', src_rev
+                )
                 if specfile and 'baselibs.conf' in specfile:
                     baselibs = True
 
@@ -1062,11 +1042,11 @@ class StagingAPI(object):
 
     def ensure_staging_archs(self, project):
         meta = ET.parse(http_GET(self.project_meta_url(project)))
-        repository = meta.find('repository[@name="{}"]'.format(self.cmain_repo))
+        repository = meta.find(f'repository[@name="{self.cmain_repo}"]')
 
         changed = False
         for arch in self.cstaging_archs:
-            if not repository.xpath('./arch[text()="{}"]'.format(arch)):
+            if not repository.xpath(f'./arch[text()="{arch}"]'):
                 elm = ET.SubElement(repository, 'arch')
                 elm.text = arch
                 changed = True
@@ -1081,27 +1061,21 @@ class StagingAPI(object):
             self.add_required_check(project, required_check)
 
     def prj_from_letter(self, letter):
-        if ':' in letter:  # not a letter
-            return letter
-        return '{}:{}'.format(self.cstaging, letter)
+        return letter if ':' in letter else f'{self.cstaging}:{letter}'
 
     def adi_prj_from_number(self, number):
-        if ':' in str(number):
-            return number
-        return '{}:adi:{}'.format(self.cstaging, number)
+        return number if ':' in str(number) else f'{self.cstaging}:adi:{number}'
 
     def list_requests_in_prj(self, project):
-        where = "@by_project='%s'+and+@state='new'" % project
+        where = f"@by_project='{project}'+and+@state='new'"
 
-        url = self.makeurl(['search', 'request', 'id'],
-                           "match=state/@name='review'+and+review[%s]" % where)
+        url = self.makeurl(
+            ['search', 'request', 'id'],
+            f"match=state/@name='review'+and+review[{where}]",
+        )
         f = http_GET(url)
         root = ET.parse(f).getroot()
-        list = []
-        for rq in root.findall('request'):
-            list.append(int(rq.get('id')))
-
-        return list
+        return [int(rq.get('id')) for rq in root.findall('request')]
 
     def add_review(self, request_id, by_project=None, by_group=None, msg=None):
         """
@@ -1111,7 +1085,7 @@ class StagingAPI(object):
         """
         req = get_request(self.apiurl, str(request_id))
         if not req:
-            raise oscerr.WrongArgs('Request {} not found'.format(request_id))
+            raise oscerr.WrongArgs(f'Request {request_id} not found')
         for i in req.reviews:
             if by_project and i.by_project == by_project and i.state == 'new':
                 return
@@ -1131,7 +1105,7 @@ class StagingAPI(object):
         if by_group:
             query['by_group'] = by_group
             if not msg:
-                msg = 'Being evaluated by group "{}"'.format(by_group)
+                msg = f'Being evaluated by group "{by_group}"'
         if not query:
             raise oscerr.WrongArgs('We need a group or a project')
         query['cmd'] = 'addreview'
@@ -1181,10 +1155,7 @@ class StagingAPI(object):
             return True  # already has content
 
         # young enough
-        if self.days_since_last_freeze(project) < MAX_FROZEN_AGE:
-            return True
-
-        return False
+        return self.days_since_last_freeze(project) < MAX_FROZEN_AGE
 
     def build_switch_staging_project(self, target_project, target_flag):
         """
@@ -1215,8 +1186,9 @@ class StagingAPI(object):
 
         version = None
 
-        specfile = source_file_load(self.apiurl, project, package, '{}.spec'.format(package))
-        if specfile:
+        if specfile := source_file_load(
+            self.apiurl, project, package, f'{package}.spec'
+        ):
             try:
                 version = re.findall('^Version:(.*)', specfile, re.MULTILINE)[0].strip()
             except IndexError:
@@ -1227,7 +1199,16 @@ class StagingAPI(object):
         """
         Return the version of a built rpm file
         """
-        url = self.makeurl(['build', project, repository, arch, '_repository', "%s?view=fileinfo" % rpm])
+        url = self.makeurl(
+            [
+                'build',
+                project,
+                repository,
+                arch,
+                '_repository',
+                f"{rpm}?view=fileinfo",
+            ]
+        )
         try:
             return ET.parse(http_GET(url)).getroot().find('version').text
         except HTTPError as e:
@@ -1269,27 +1250,25 @@ class StagingAPI(object):
 
         # A single comment should be enough to notify everybody, since they are
         # already mentioned in the comments created by select/unselect.
-        comment = 'Project "{}" accepted. ' \
-            'The following packages have been submitted to {}: {}.'.format(
-                project, self.project, ', '.join(packages))
+        comment = f"""Project "{project}" accepted. The following packages have been submitted to {self.project}: {', '.join(packages)}."""
         CommentAPI(self.apiurl).add_comment(project_name=project, comment=comment)
 
     def get_prj_results(self, prj, arch):
         url = self.makeurl(['build', prj, 'standard', arch, "_jobhistory?code=lastfailures"])
-        results = []
-
         root = ET.parse(http_GET(url)).getroot()
 
         xmllines = root.findall("./jobhist")
 
-        for pkg in xmllines:
-            if pkg.attrib['code'] == 'failed':
-                results.append(pkg.attrib['package'])
-
-        return results
+        return [
+            pkg.attrib['package']
+            for pkg in xmllines
+            if pkg.attrib['code'] == 'failed'
+        ]
 
     def is_repo_dirty(self, project, repository):
-        url = self.makeurl(['build', project, '_result?code=broken&repository=%s' % repository])
+        url = self.makeurl(
+            ['build', project, f'_result?code=broken&repository={repository}']
+        )
         root = ET.parse(http_GET(url)).getroot()
         for repo in root.findall('result'):
             repostate = repo.get('state', 'missing')
@@ -1299,19 +1278,14 @@ class StagingAPI(object):
 
     def list_packages(self, project):
         url = self.makeurl(['source', project])
-        pkglist = []
-
         root = ET.parse(http_GET(url)).getroot()
         xmllines = root.findall("./entry")
-        for pkg in xmllines:
-            pkglist.append(pkg.attrib['name'])
-
-        return pkglist
+        return [pkg.attrib['name'] for pkg in xmllines]
 
     def check_pkgs(self, pkg_list):
         """Filter the package list to those still existing in the project"""
         project_packages = set(self.list_packages(self.project))
-        ret = list()
+        ret = []
         for pkg in pkg_list:
             # map multibuild flavors
             source = pkg.split(':')[0]
@@ -1331,10 +1305,10 @@ class StagingAPI(object):
         u = self.makeurl(['build', prj], query=query)
 
         try:
-            print("tried to trigger rebuild for project '%s' package '%s'" % (prj, pkg))
+            print(f"tried to trigger rebuild for project '{prj}' package '{pkg}'")
             http_POST(u)
         except HTTPError:
-            print("could not trigger rebuild for project '%s' package '%s'" % (prj, pkg))
+            print(f"could not trigger rebuild for project '{prj}' package '{pkg}'")
 
     def _candidate_adi_project(self):
         """Decide a candidate name for an ADI project."""
@@ -1349,7 +1323,7 @@ class StagingAPI(object):
 
     def update_adi_frozenlinks(self, name, src_prj):
         xpath = {
-            'package': "@project='%s' and devel/@project='%s'" % (self.project, src_prj),
+            'package': f"@project='{self.project}' and devel/@project='{src_prj}'"
         }
         collection = search(self.apiurl, **xpath)['package']
 
@@ -1383,10 +1357,10 @@ class StagingAPI(object):
 
         adi_projects = self.get_adi_projects()
         if name in adi_projects:
-            raise Exception('Project {} already exist'.format(name))
+            raise Exception(f'Project {name} already exist')
 
         if use_frozenlinks:
-            linkproject = '<link project="{}"/>'.format(self.project)
+            linkproject = f'<link project="{self.project}"/>'
             repository = '<repository name="standard" rebuild="direct" linkedbuild="all">'
         else:
             linkproject = ''
@@ -1471,7 +1445,7 @@ class StagingAPI(object):
         name.text = check
 
         meta = ET.parse(http_GET(self.project_meta_url(project)))
-        repository = meta.find('repository[@name="{}"]'.format(self.cmain_repo))
+        repository = meta.find(f'repository[@name="{self.cmain_repo}"]')
 
         for arch_element in repository.findall('arch'):
             architecture = arch_element.text
@@ -1480,7 +1454,7 @@ class StagingAPI(object):
             http_POST(url, data=ET.tostring(root))
 
     def register_new_staging_project(self, name):
-        data = '<workflow><staging_project>{}</staging_project></workflow>'.format(name)
+        data = f'<workflow><staging_project>{name}</staging_project></workflow>'
         url = self.makeurl(['staging', self.project, 'staging_projects'])
         try:
             http_POST(url, data=data)
@@ -1492,10 +1466,7 @@ class StagingAPI(object):
     def is_user_member_of(self, user, group):
         root = ET.fromstring(get_group(self.apiurl, group))
 
-        if root.findall("./person/person[@userid='%s']" % user):
-            return True
-        else:
-            return False
+        return bool(root.findall(f"./person/person[@userid='{user}']"))
 
     def staging_deactivate(self, project):
         """Cleanup staging after last request is removed and disable building."""
@@ -1520,7 +1491,7 @@ class StagingAPI(object):
         if self.rings:
             # Determine if staging is bootstrapped.
             meta = self.get_prj_meta(project)
-            xpath = 'link[@project="{}"]'.format(self.rings[0])
+            xpath = f'link[@project="{self.rings[0]}"]'
             return meta.find(xpath) is not None
 
         return False

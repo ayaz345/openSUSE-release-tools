@@ -47,7 +47,7 @@ class RequestSplitter(object):
     def strategy_set(self, name, **kwargs):
         self.reset()
 
-        class_name = 'Strategy{}'.format(name.lower().title())
+        class_name = f'Strategy{name.lower().title()}'
         cls = globals()[class_name]
         self.strategy = cls(**kwargs)
         self.strategy.apply(self)
@@ -129,8 +129,7 @@ class RequestSplitter(object):
             target.set('devel_project', devel)
             StrategySuper.supplement(request)
 
-        ring = self.ring_get(target_package)
-        if ring:
+        if ring := self.ring_get(target_package):
             target.set('ring', ring)
 
         request_id = int(request.get('id'))
@@ -144,21 +143,16 @@ class RequestSplitter(object):
     def ring_get(self, target_package):
         if self.api.conlyadi:
             return None
-        if self.api.crings:
-            ring = self.api.ring_packages_for_links.get(target_package)
-            if ring:
-                # Cut off *:Rings: prefix.
-                return ring[len(self.api.crings) + 1:]
-        else:
+        if not self.api.crings:
             # Projects not using rings handle all requests as ring requests.
             return self.api.project
+        if ring := self.api.ring_packages_for_links.get(target_package):
+            # Cut off *:Rings: prefix.
+            return ring[len(self.api.crings) + 1:]
         return None
 
     def filter_check(self, request):
-        for xpath in self.filters:
-            if not xpath(request):
-                return False
-        return True
+        return all(xpath(request) for xpath in self.filters)
 
     def group_key_build(self, request):
         if len(self.groups) == 0:
@@ -166,12 +160,9 @@ class RequestSplitter(object):
 
         key = []
         for xpath in self.groups:
-            element = xpath(request)
-            if element:
+            if element := xpath(request):
                 key.append(element[0])
-        if len(key) == 0:
-            return '00'
-        return '__'.join(key)
+        return '00' if not key else '__'.join(key)
 
     def should_staging_merge(self, staging):
         staging = self.stagings[staging]
@@ -208,8 +199,7 @@ class RequestSplitter(object):
 
         # Use specified list of stagings, otherwise only empty, letter stagings.
         if len(stagings) == 0:
-            whitelist = self.config.get('splitter-whitelist')
-            if whitelist:
+            if whitelist := self.config.get('splitter-whitelist'):
                 stagings = whitelist.split()
             else:
                 stagings = self.api.get_staging_projects_short()
@@ -253,8 +243,7 @@ class RequestSplitter(object):
         # Attempt to assign groups that have bootstrap_required first.
         for group in sorted(self.grouped.keys()):
             if self.grouped[group]['bootstrap_required']:
-                staging = self.propose_staging(choose_bootstrapped=True)
-                if staging:
+                if staging := self.propose_staging(choose_bootstrapped=True):
                     self.requests_assign(group, staging)
                 else:
                     self.requests_postpone(group)
@@ -263,20 +252,18 @@ class RequestSplitter(object):
         # bootstrapped staging if no non-bootstrapped stagings available.
         for group in sorted(self.grouped.keys()):
             if not self.grouped[group]['bootstrap_required']:
-                staging = self.propose_staging(choose_bootstrapped=False)
-                if staging:
+                if staging := self.propose_staging(choose_bootstrapped=False):
                     self.requests_assign(group, staging)
                     continue
 
-                staging = self.propose_staging(choose_bootstrapped=True)
-                if staging:
+                if staging := self.propose_staging(choose_bootstrapped=True):
                     self.requests_assign(group, staging)
                 else:
                     self.requests_postpone(group)
 
     def requests_assign(self, group, staging, merge=False):
         # Arbitrary, but descriptive group key for proposal.
-        key = '{}#{}@{}'.format(len(self.proposal), self.strategy.key, group)
+        key = f'{len(self.proposal)}#{self.strategy.key}@{group}'
         self.proposal[key] = {
             'bootstrap_required': self.grouped[group]['bootstrap_required'],
             'group': group,
@@ -380,7 +367,7 @@ class Strategy(object):
         self.name = self.__class__.__name__[8:].lower()
         self.key = self.name
         if kwargs:
-            self.key += '_' + sha1_short(str(kwargs))
+            self.key += f'_{sha1_short(str(kwargs))}'
 
     def info(self):
         info = {'name': self.name}
@@ -431,11 +418,12 @@ class StrategyDevel(StrategyNone):
         splitter.group_by('./action/target/@devel_project', True)
 
     def desirable(self, splitter):
-        groups = []
-        for group, info in sorted(splitter.grouped.items()):
-            if len(info['requests']) >= self.GROUP_MIN_MAP.get(group, self.GROUP_MIN):
-                groups.append(group)
-        return groups
+        return [
+            group
+            for group, info in sorted(splitter.grouped.items())
+            if len(info['requests'])
+            >= self.GROUP_MIN_MAP.get(group, self.GROUP_MIN)
+        ]
 
 
 class StrategySuper(StrategyDevel):
@@ -452,8 +440,7 @@ class StrategySuper(StrategyDevel):
     @classmethod
     def init(cls):
         cls.patterns = []
-        for pattern in cls.PATTERNS:
-            cls.patterns.append(re.compile(pattern))
+        cls.patterns.extend(re.compile(pattern) for pattern in cls.PATTERNS)
 
     @classmethod
     def supplement(cls, request):
@@ -463,8 +450,7 @@ class StrategySuper(StrategyDevel):
         target = request.find('./action/target')
         devel_project = target.get('devel_project')
         for pattern in cls.patterns:
-            match = pattern.match(devel_project)
-            if match:
+            if match := pattern.match(devel_project):
                 prefix = match.group(0 if len(match.groups()) == 0 else 1).rstrip(':')
                 target.set('devel_project_super', prefix)
                 break

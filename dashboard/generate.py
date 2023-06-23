@@ -36,7 +36,7 @@ class Fetcher(object):
             key = job['result']
             if job['state'] != 'done':
                 key = job['state']
-                if key == 'uploading' or key == 'assigned':
+                if key in ['uploading', 'assigned']:
                     key = 'running'
             jobs.setdefault(key, []).append(job['name'])
         return jobs
@@ -60,7 +60,7 @@ class Fetcher(object):
         for result in root.findall('.//statuscount'):
             code = result.get('code')
             count = int(result.get('count'))
-            if code == 'excluded' or code == 'disabled' or code == 'locked':
+            if code in ['excluded', 'disabled', 'locked']:
                 continue  # ignore
             if code == 'succeeded':
                 succeeded += count
@@ -88,19 +88,16 @@ class Fetcher(object):
 
     def generate_all_archs(self, project):
         meta = ET.fromstringlist(show_project_meta(self.apiurl, project))
-        archs = set()
-        for arch in meta.findall('.//arch'):
-            archs.add(arch.text)
-        result = []
-        for arch in archs:
-            result.append(f"arch_{arch}=1")
+        archs = {arch.text for arch in meta.findall('.//arch')}
+        result = [f"arch_{arch}=1" for arch in archs]
         return '&'.join(result)
 
     def fetch_ttm_status(self, project):
-        text = attribute_value_load(self.apiurl, project, 'ToTestManagerStatus')
-        if text:
+        if text := attribute_value_load(
+            self.apiurl, project, 'ToTestManagerStatus'
+        ):
             return yaml.safe_load(text)
-        return dict()
+        return {}
 
     def fetch_product_version(self, project):
         return attribute_value_load(self.apiurl, project, 'ProductVersion')

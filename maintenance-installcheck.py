@@ -20,23 +20,20 @@ class MaintInstCheck(ReviewBot.ReviewBot):
 
     def repository_check(self, repository_pairs, archs):
         project, repository = repository_pairs[0]
-        self.logger.info('checking {}/{}'.format(project, repository))
+        self.logger.info(f'checking {project}/{repository}')
 
         if not len(archs):
-            self.logger.debug(
-                '{} has no relevant architectures'.format(project))
+            self.logger.debug(f'{project} has no relevant architectures')
             return
 
         for arch in archs:
-            directories = []
-            for pair_project, pair_repository in repository_pairs:
-                directories.append(
-                    mirror(self.apiurl, pair_project, pair_repository, arch))
-
+            directories = [
+                mirror(self.apiurl, pair_project, pair_repository, arch)
+                for pair_project, pair_repository in repository_pairs
+            ]
             parts = installcheck(directories, arch, [], [])
             if len(parts):
-                self.comment.append(
-                    '## {}/{}\n'.format(repository_pairs[0][1], arch))
+                self.comment.append(f'## {repository_pairs[0][1]}/{arch}\n')
                 self.comment.extend(parts)
 
         return len(self.comment) == 0
@@ -70,8 +67,7 @@ class MaintInstCheck(ReviewBot.ReviewBot):
             # Do not change message as this should only occur in requests
             # targeting multiple projects such as in maintenance workflow in
             # which the message should be set by other actions.
-            self.logger.debug(
-                'skipping review of action targeting {}'.format(action.tgt_project))
+            self.logger.debug(f'skipping review of action targeting {action.tgt_project}')
             return True
 
         repository = target_config.get('main-repo')
@@ -89,8 +85,9 @@ class MaintInstCheck(ReviewBot.ReviewBot):
 
         self.checked_targets.add(action.tgt_project)
         archs = set(target_archs(self.apiurl, action.src_project, repository))
-        arch_whitelist = target_config.get('repo_checker-arch-whitelist', None)
-        if arch_whitelist:
+        if arch_whitelist := target_config.get(
+            'repo_checker-arch-whitelist', None
+        ):
             archs = set(arch_whitelist.split(' ')).intersection(archs)
 
         if not self.repository_check(repository_pairs, archs):

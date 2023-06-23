@@ -31,7 +31,7 @@ class RemindedPackage(object):
         self.problem = problem
 
     def __str__(self):
-        return '{} {} {} {}'.format(self.firstfail, self.reminded, self.remindCount, self.problem)
+        return f'{self.firstfail} {self.reminded} {self.remindCount} {self.problem}'
 
 
 def jdefault(o):
@@ -88,14 +88,14 @@ Kind regards,
 
 def SendMail(logger, project, sender, to, fullname, subject, text):
     try:
-        xmailer = '{} - Problem Notification'.format(project)
+        xmailer = f'{project} - Problem Notification'
         to = email.utils.formataddr((fullname, to))
         mail_send_with_details(sender=sender, to=to,
                                subject=subject, text=text, xmailer=xmailer,
                                relay=args.relay, dry=args.dry)
     except Exception as e:
         print(e)
-        logger.error("Failed to send an email to %s (%s)" % (fullname, to))
+        logger.error(f"Failed to send an email to {fullname} ({to})")
 
 
 def check_reminder(pname, first, problem, now, Reminded, RemindedLoaded):
@@ -106,14 +106,13 @@ def check_reminder(pname, first, problem, now, Reminded, RemindedLoaded):
         # This is the first time we see this package failing for > 7 days
         reminded = now
         remindCount = 1
+    elif RemindedLoaded[pname]["reminded"] < now - SEVEN_DAYS:
+        # We had seen this package in the last run - special treatment
+        reminded = now
+        remindCount = RemindedLoaded[pname]["remindCount"] + 1
     else:
-        if RemindedLoaded[pname]["reminded"] < now - SEVEN_DAYS:
-            # We had seen this package in the last run - special treatment
-            reminded = now
-            remindCount = RemindedLoaded[pname]["remindCount"] + 1
-        else:
-            reminded = RemindedLoaded[pname]["reminded"]
-            remindCount = RemindedLoaded[pname]["remindCount"]
+        reminded = RemindedLoaded[pname]["reminded"]
+        remindCount = RemindedLoaded[pname]["remindCount"]
     Reminded[pname] = RemindedPackage(first, problem, reminded, remindCount)
 
 
@@ -144,7 +143,7 @@ def main(args):
     global project
     project = args.project
 
-    logger.debug('loading build fails for %s' % project)
+    logger.debug(f'loading build fails for {project}')
     url = osc.core.makeurl(apiurl, ['source', f'{project}:Staging', 'dashboard', f'rebuildpacs.{project}-standard.yaml'])
     try:
         _data = osc.core.http_GET(url)
@@ -162,7 +161,7 @@ def main(args):
 
     reminded_json = args.json
     if not reminded_json:
-        reminded_json = '{}.reminded.json'.format(project)
+        reminded_json = f'{project}.reminded.json'
 
     try:
         with open(reminded_json) as json_data:
@@ -185,7 +184,7 @@ def main(args):
         date = int(dateutil.parser.parse(timestamp).timestamp())
         check_reminder(extract_package_name(source), date, "Unresolvable", now, Reminded, RemindedLoaded)
 
-    repochecks = dict()
+    repochecks = {}
     for prpa, details in rebuilddata['check'].items():
         package = extract_package_name(prpa)
         date = int(dateutil.parser.parse(details["rebuild"]).timestamp())
@@ -193,21 +192,25 @@ def main(args):
         for problem in details["problem"]:
             repochecks[package]["problems"].add(problem)
 
-        if repochecks[package]["rebuild"] > date:
-            # prefer the youngest date
-            repochecks[package]["rebuild"] = date
-
-    for pname in repochecks:
+        repochecks[package]["rebuild"] = min(repochecks[package]["rebuild"], date)
+    for pname, value in repochecks.items():
         first_problem = sorted(repochecks[pname]["problems"])[0]
-        check_reminder(pname, repochecks[pname]["rebuild"], f"Uninstallable: {first_problem}", now, Reminded, RemindedLoaded)
+        check_reminder(
+            pname,
+            value["rebuild"],
+            f"Uninstallable: {first_problem}",
+            now,
+            Reminded,
+            RemindedLoaded,
+        )
 
     if not args.dry:
         with open(reminded_json, 'w') as json_result:
             json.dump(Reminded, json_result, default=jdefault)
 
-    for package in Reminded:
+    for package, value_ in Reminded.items():
         # Now we check on all the packages if we have to perform any reminder actions...
-        if Reminded[package].reminded == now:
+        if value_.reminded == now:
             # find the maintainers, try to not hammer the server too much
             query = {
                 'binary': package,
@@ -215,8 +218,11 @@ def main(args):
             }
             url = osc.core.makeurl(apiurl, ('search', 'owner'), query=query)
             root = ET.parse(osc.core.http_GET(url)).getroot()
-            maintainers = set([p.get('name') for p in root.findall('.//person')
-                              if p.get('role') in ('maintainer', 'bugowner')])
+            maintainers = {
+                p.get('name')
+                for p in root.findall('.//person')
+                if p.get('role') in ('maintainer', 'bugowner')
+            }
             # TODO: expand groups if no persons found
             for userid in maintainers:
                 if userid not in Person:
@@ -225,7 +231,7 @@ def main(args):
                 for userid in maintainers:
                     to = Person[userid][2]
                     fullname = Person[userid][1]
-                    subject = '%s - %s - Build problem notification' % (project, package)
+                    subject = f'{project} - {package} - Build problem notification'
                     text = MAIL_TEMPLATES[Reminded[package].remindCount - 1] % {
                         'recipient': fullname,
                         'sender': sender,

@@ -44,13 +44,15 @@ class RepoChecker():
         if not repository:
             repository = self.project_repository(project)
         if not repository:
-            self.logger.error('a repository must be specified via OSRT:Config main-repo for {}'.format(project))
+            self.logger.error(
+                f'a repository must be specified via OSRT:Config main-repo for {project}'
+            )
             return
         self.repository = repository
 
         archs = target_archs(self.apiurl, project, repository)
         if not len(archs):
-            self.logger.debug('{} has no relevant architectures'.format(project))
+            self.logger.debug(f'{project} has no relevant architectures')
             return None
 
         for arch in archs:
@@ -61,7 +63,7 @@ class RepoChecker():
             self.create_comments(state)
 
     def create_comments(self, state):
-        comments = dict()
+        comments = {}
         for source, details in state['check'].items():
             rebuild = dateutil.parser.parse(details["rebuild"])
             if datetime.now() - rebuild < timedelta(days=2):
@@ -79,7 +81,7 @@ class RepoChecker():
                 continue
             if comment.get('package') in comments:
                 continue
-            self.logger.info("Removing comment for package {}".format(comment.get('package')))
+            self.logger.info(f"Removing comment for package {comment.get('package')}")
             url = makeurl(self.apiurl, ['comment', comment.get('id')])
             http_DELETE(url)
 
@@ -91,17 +93,17 @@ class RepoChecker():
             for arch in sorted(comments[package]):
                 newcomment += f"\n\n**Installcheck problems for {arch}**\n\n"
                 for problem in sorted(comments[package][arch]):
-                    newcomment += "+ " + problem + "\n"
+                    newcomment += f"+ {problem}" + "\n"
 
             newcomment = commentapi.add_marker(newcomment.strip(), MARKER)
             oldcomments = commentapi.get_comments(project_name=self.project, package_name=package)
             oldcomment, _ = commentapi.comment_find(oldcomments, MARKER)
-            if oldcomment and oldcomment['comment'] == newcomment:
-                continue
-
             if oldcomment:
+                if oldcomment['comment'] == newcomment:
+                    continue
+
                 commentapi.delete(oldcomment['id'])
-            self.logger.debug("Adding comment to {}/{}".format(self.project, package))
+            self.logger.debug(f"Adding comment to {self.project}/{package}")
             commentapi.add_comment(project_name=self.project, package_name=package, comment=newcomment)
 
     def _split_and_filter(self, output):
@@ -123,7 +125,7 @@ class RepoChecker():
     def project_repository(self, project):
         repository = Config.get(self.apiurl, project).get('main-repo')
         if not repository:
-            self.logger.debug('no main-repo defined for {}'.format(project))
+            self.logger.debug(f'no main-repo defined for {project}')
 
             search_project = 'openSUSE:Factory'
             for search_repository in ('snapshot', 'standard'):
@@ -131,8 +133,9 @@ class RepoChecker():
                     self.apiurl, project, search_project, search_repository)
 
                 if repository:
-                    self.logger.debug('found chain to {}/{} via {}'.format(
-                        search_project, search_repository, repository))
+                    self.logger.debug(
+                        f'found chain to {search_project}/{search_repository} via {repository}'
+                    )
                     break
 
         return repository
@@ -142,7 +145,7 @@ class RepoChecker():
             return
 
         state_yaml = yaml.dump(state, default_flow_style=False)
-        comment = 'Updated rebuild infos for {}/{}/{}'.format(self.project, self.repository, self.arch)
+        comment = f'Updated rebuild infos for {self.project}/{self.repository}/{self.arch}'
         source_file_ensure(self.apiurl, self.store_project, self.store_package,
                            self.store_filename, state_yaml, comment=comment)
 
@@ -157,7 +160,7 @@ class RepoChecker():
         for rpm, rcode in buildresult.items():
             if rcode != code:
                 continue
-            source = "{}/{}/{}/{}".format(self.project, self.repository, self.arch, rpm)
+            source = f"{self.project}/{self.repository}/{self.arch}/{rpm}"
             if source not in oldstate[code]:
                 oldstate[code][source] = str(datetime.now())
 

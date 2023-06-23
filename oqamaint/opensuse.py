@@ -27,7 +27,7 @@ class openSUSEUpdate(Update):
 
     # list all packages released for an incident
     def packages(self, src_prj, dst_prj):
-        packages = dict()
+        packages = {}
         repo = dst_prj.replace(':', '_')
         # patchinfo collects the binaries and is build for an
         # unpredictable architecture so we need iterate over all
@@ -63,6 +63,7 @@ class openSUSEUpdate(Update):
         packages = self.packages(src_prj, dst_prj)
         settings['INSTALL_PACKAGES'] = ' '.join(packages.keys())
         settings['VERIFY_PACKAGE_VERSIONS'] = ' '.join(
-                ['{} {}-{}'.format(p.name, p.version, p.release) for p in packages.values()])
+            [f'{p.name} {p.version}-{p.release}' for p in packages.values()]
+        )
 
         return [settings]

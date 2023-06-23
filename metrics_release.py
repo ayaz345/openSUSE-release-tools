@@ -9,7 +9,7 @@ BASEURL = 'http://review.tumbleweed.boombatower.com/data/'
 
 
 def data_load(name):
-    response = requests.get(urljoin(BASEURL, '{}.yaml'.format(name)))
+    response = requests.get(urljoin(BASEURL, f'{name}.yaml'))
     return yaml.safe_load(response.text)
 
 
@@ -21,18 +21,18 @@ def data_write(client, measurement, points):
 def ingest_data(client, name):
     data = data_load(name)
 
-    measurement = 'release_{}'.format(name)
-    map_func = globals()['map_{}'.format(name)]
-    points = []
-    for release, details in data.items():
-        points.append({
+    measurement = f'release_{name}'
+    map_func = globals()[f'map_{name}']
+    points = [
+        {
             'measurement': measurement,
             'fields': map_func(details),
             'time': timestamp(date_parse(release)),
-        })
-
+        }
+        for release, details in data.items()
+    ]
     data_write(client, measurement, points)
-    print('wrote {} for {}'.format(len(points), name))
+    print(f'wrote {len(points)} for {name}')
 
 
 def map_bug(bugs):

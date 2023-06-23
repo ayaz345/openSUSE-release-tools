@@ -49,10 +49,7 @@ def get_request_list(*args, **kwargs):
     osc.core.search = osc.core._search
 
     query = search_capture.query
-    for request in search_paginated_generator(query[0], query[1], **query[2]):
-        # Python 3 yield from.
-        yield request
-
+    yield from search_paginated_generator(query[0], query[1], **query[2])
     osc.core.ET = osc.core._ET
 
 
@@ -128,23 +125,23 @@ def ingest_requests(api, project):
         }
         # TODO Total time spent in backlog (ie factory-staging, but excluding when staged).
 
-        staged_first_review = request.xpath('review[contains(@by_project, "{}:Staging:")]'.format(project))
+        staged_first_review = request.xpath(
+            f'review[contains(@by_project, "{project}:Staging:")]'
+        )
         if len(staged_first_review):
             by_project = staged_first_review[0].get('by_project')
             request_tags['type'] = 'adi' if api.is_adi_project(by_project) else 'letter'
 
             # TODO Determine current whitelists state based on dashboard revisions.
             if project.startswith('openSUSE:Factory'):
-                splitter_whitelist = 'B C D E F G H I J'.split()
-                if splitter_whitelist:
+                if splitter_whitelist := 'B C D E F G H I J'.split():
                     short = api.extract_staging_short(by_project)
                     request_tags['whitelisted'] = short in splitter_whitelist
             else:
                 # All letter where whitelisted since no restriction.
                 request_tags['whitelisted'] = request_tags['type'] == 'letter'
 
-        xpath = 'review[contains(@by_project, "{}:Staging:adi:") and @state="accepted"]/'.format(project)
-        xpath += 'history[comment[text() = "ready to accept"]]/@when'
+        xpath = f'review[contains(@by_project, "{project}:Staging:adi:") and @state="accepted"]/history[comment[text() = "ready to accept"]]/@when'
         ready_to_accept = request.xpath(xpath)
         if len(ready_to_accept):
             ready_to_accept = date_parse(ready_to_accept[0])
@@ -168,8 +165,7 @@ def ingest_requests(api, project):
         point('request', request_fields, final_at, request_tags)
 
         # Staging related reviews.
-        for number, review in enumerate(
-                request.xpath('review[contains(@by_project, "{}:Staging:")]'.format(project)), start=1):
+        for number, review in enumerate(request.xpath(f'review[contains(@by_project, "{project}:Staging:")]'), start=1):
             staged_at = date_parse(review.get('when'))
 
             project_type = 'adi' if api.is_adi_project(review.get('by_project')) else 'letter'
@@ -179,8 +175,7 @@ def ingest_requests(api, project):
             point('total', {'backlog': -1, 'staged': 1}, staged_at, {'event': 'select'}, True)
 
             who = who_workaround(request, review)
-            review_tags = {'event': 'select', 'user': who, 'number': number}
-            review_tags.update(request_tags)
+            review_tags = {'event': 'select', 'user': who, 'number': number} | request_tags
             point('user', {'count': 1}, staged_at, review_tags)
 
             history = review.find('history')
@@ -196,7 +191,7 @@ def ingest_requests(api, project):
             point('total', {'backlog': 1, 'staged': -1}, unselected_at, {'event': 'unselect'}, True)
 
         # No-staging related reviews.
-        for review in request.xpath('review[not(contains(@by_project, "{}:Staging:"))]'.format(project)):
+        for review in request.xpath(f'review[not(contains(@by_project, "{project}:Staging:"))]'):
             tags = {
                 # who_added is non-trivial due to openSUSE/open-build-service#3898.
                 'state': review.get('state'),
@@ -246,7 +241,9 @@ def ingest_requests(api, project):
             if priority.text in found:
                 point('priority', {'count': -1}, final_at, {'level': priority.text}, True)
             else:
-                print('unable to find priority history entry for {} to {}'.format(request.get('id'), priority.text))
+                print(
+                    f"unable to find priority history entry for {request.get('id')} to {priority.text}"
+                )
 
     print('finalizing {:,} points'.format(len(points)))
     return walk_points(points, project)
@@ -265,8 +262,8 @@ def who_workaround(request, review, relax=False):
         when = when[:-2]
 
     who_real = request.xpath(
-        'history[contains(@when, "{}") and comment[contains(text(), "{}")]]/@who'.format(
-            when, review.get('by_project')))
+        f"""history[contains(@when, "{when}") and comment[contains(text(), "{review.get('by_project')}")]]/@who"""
+    )
     if len(who_real):
         who = who_real[0]
         who_workaround_swap += 1
@@ -338,31 +335,27 @@ def walk_points(points, target):
 
 
 def ingest_release_schedule(project):
-    points = []
     release_schedule = {}
-    release_schedule_file = os.path.join(SOURCE_DIR, 'metrics/annotation/{}.yaml'.format(project))
+    release_schedule_file = os.path.join(
+        SOURCE_DIR, f'metrics/annotation/{project}.yaml'
+    )
     if project.endswith('Factory'):
         # TODO Pending resolution to #1250 regarding deployment.
         return 0
 
-        # Extract Factory "release schedule" from Tumbleweed snapshot list.
-        command = 'rsync rsync.opensuse.org::opensuse-full/opensuse/tumbleweed/iso/Changes.* | ' \
-            'grep -oP "' + r'Changes\.\K\d{5,}' + '"'
-        snapshots = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE).communicate()[0]
-        for date in snapshots.split():
-            release_schedule[datetime.strptime(date, '%Y%m%d')] = 'Snapshot {}'.format(date)
     elif os.path.isfile(release_schedule_file):
         # Load release schedule for non-rolling releases from yaml file.
         with open(release_schedule_file, 'r') as stream:
             release_schedule = yaml.safe_load(stream)
 
-    for date, description in release_schedule.items():
-        points.append({
+    points = [
+        {
             'measurement': 'release_schedule',
             'fields': {'description': description},
             'time': timestamp(date),
-        })
-
+        }
+        for date, description in release_schedule.items()
+    ]
     client.drop_measurement('release_schedule')
     client.write_points(points, 's')
     return len(points)
@@ -388,11 +381,14 @@ def revision_index(api):
 
 def revision_at(api, datetime):
     index = revision_index(api)
-    for made, revision in sorted(index.items(), reverse=True):
-        if made <= datetime:
-            return revision
-
-    return None
+    return next(
+        (
+            revision
+            for made, revision in sorted(index.items(), reverse=True)
+            if made <= datetime
+        ),
+        None,
+    )
 
 
 def dashboard_at(api, filename, datetime=None, revision=None):
@@ -403,9 +399,7 @@ def dashboard_at(api, filename, datetime=None, revision=None):
 
     content = api.pseudometa_file_load(filename, revision)
     if filename in ('ignored_requests'):
-        if content:
-            return yaml.safe_load(content)
-        return {}
+        return yaml.safe_load(content) if content else {}
     elif filename in ('config'):
         if content:
             # TODO re-use from osclib.conf.
@@ -439,8 +433,9 @@ def dashboard_at_changed(api, filename, revision=None):
 
 def ingest_dashboard_config(content):
     if not hasattr(ingest_dashboard_config, 'previous'):
-        result = client.query('SELECT * FROM dashboard_config ORDER BY time DESC LIMIT 1')
-        if result:
+        if result := client.query(
+            'SELECT * FROM dashboard_config ORDER BY time DESC LIMIT 1'
+        ):
             # Extract last point and remove zero values since no need to fill.
             point = next(result.get_points())
             point = {k: v for (k, v) in point.iteritems() if k != 'time' and v != 0}
@@ -489,8 +484,9 @@ def ingest_dashboard_version_snapshot(content):
 
 
 def ingest_dashboard_revision_get():
-    result = client.query('SELECT revision FROM dashboard_revision ORDER BY time DESC LIMIT 1')
-    if result:
+    if result := client.query(
+        'SELECT revision FROM dashboard_revision ORDER BY time DESC LIMIT 1'
+    ):
         return next(result.get_points())['revision']
 
     return None
@@ -500,7 +496,7 @@ def ingest_dashboard(api):
     index = revision_index(api)
 
     revision_last = ingest_dashboard_revision_get()
-    past = True if revision_last is None else False
+    past = revision_last is None
     print('dashboard ingest: processing {:,} revisions starting after {}'.format(
         len(index), 'the beginning' if past else revision_last))
 
@@ -518,18 +514,19 @@ def ingest_dashboard(api):
 
         time = timestamp(made)
         for filename in filenames:
-            content = dashboard_at_changed(api, filename, revision)
-            if content:
-                map_func = globals()['ingest_dashboard_{}'.format(filename)]
+            if content := dashboard_at_changed(api, filename, revision):
+                map_func = globals()[f'ingest_dashboard_{filename}']
                 fields = map_func(content)
                 if not len(fields):
                     continue
 
-                points.append({
-                    'measurement': 'dashboard_{}'.format(filename),
-                    'fields': fields,
-                    'time': time,
-                })
+                points.append(
+                    {
+                        'measurement': f'dashboard_{filename}',
+                        'fields': fields,
+                        'time': time,
+                    }
+                )
 
         points.append({
             'measurement': 'dashboard_revision',
@@ -548,7 +545,7 @@ def ingest_dashboard(api):
         client.write_points(points, 's')
         count += len(points)
 
-    print('last revision processed: {}'.format(revision if len(index) else 'none'))
+    print(f"last revision processed: {revision if len(index) else 'none'}")
 
     return count
 
@@ -574,8 +571,8 @@ def main(args):
         Cache.delete_all()
     if args.heavy_cache:
         Cache.PATTERNS[r'/search/request'] = sys.maxsize
-        Cache.PATTERNS[r'/source/[^/]+/{}/_history'.format(package)] = sys.maxsize
-    Cache.PATTERNS[r'/source/[^/]+/{}/[^/]+\?rev=.*'.format(package)] = sys.maxsize
+        Cache.PATTERNS[f'/source/[^/]+/{package}/_history'] = sys.maxsize
+    Cache.PATTERNS[f'/source/[^/]+/{package}/[^/]+\?rev=.*'] = sys.maxsize
     Cache.init('metrics')
 
     Config(apiurl, args.project)

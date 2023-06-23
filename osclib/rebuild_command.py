@@ -23,6 +23,6 @@ class RebuildCommand(object):
             rebuilt = self.api.rebuild_broken(status, not force)
             for key, code in rebuilt:
                 key = [self.KEY_COLOR.get(i, '') + part + Fore.RESET for i, part in enumerate(key)]
-                print('rebuild {} {}'.format(
-                    '/'.join(key),
-                    self.CODE_COLOR.get(code, Fore.RED) + code + Fore.RESET))
+                print(
+                    f"rebuild {'/'.join(key)} {self.CODE_COLOR.get(code, Fore.RED) + code + Fore.RESET}"
+                )

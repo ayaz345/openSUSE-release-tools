@@ -16,7 +16,7 @@ def do_cycle(self, subcmd, opts, *args):
     ${cmd_option_list}
     """
 
-    if len(args) == 0:
+    if not args:
         print("No packages were specified, no chain to draw")
 
     apiurl = self.get_api_url()

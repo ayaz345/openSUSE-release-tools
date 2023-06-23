@@ -117,9 +117,7 @@ class Cache(object):
                 print('CACHE_DISABLE via $OSRT_DISABLE_CACHE', file=sys.stderr)
             return
 
-        for pattern in Cache.PATTERNS:
-            Cache.patterns.append(re.compile(pattern))
-
+        Cache.patterns.extend(re.compile(pattern) for pattern in Cache.PATTERNS)
         # Replace http_request with wrapper function which needs a stored
         # version of the original function to call.
         if not hasattr(osc.core, '_http_request'):
@@ -152,13 +150,8 @@ class Cache(object):
                 unchanged_since = datetime.datetime.strptime(unchanged_since, '%Y-%m-%dT%H:%M:%SZ')
                 history_span = now - unchanged_since
 
-                # Treat non-existant cache as brand new for the sake of history
-                # span check since it behaves as desired.
-                age = 0
                 directory = Cache.path(url, project)
-                if os.path.exists(directory):
-                    age = time() - os.path.getmtime(directory)
-
+                age = time() - os.path.getmtime(directory) if os.path.exists(directory) else 0
                 # If history span is shorter than allowed cache life and the age
                 # of the current cache is older than history span with no
                 # changes the cache cannot be guaranteed. For example:
@@ -174,10 +167,10 @@ class Cache(object):
             if os.path.exists(path) and time() - os.path.getmtime(path) <= ttl:
                 if conf.config['debug']:
                     print('CACHE_GET', url, file=sys.stderr)
-                return urlopen('file://' + path)
+                return urlopen(f'file://{path}')
             else:
-                reason = '(' + ('expired' if os.path.exists(path) else 'does not exist') + ')'
                 if conf.config['debug']:
+                    reason = '(' + ('expired' if os.path.exists(path) else 'does not exist') + ')'
                     print('CACHE_MISS', url, reason, file=sys.stderr)
 
         return None
@@ -201,10 +194,8 @@ class Cache(object):
 
             if conf.config['debug']:
                 print('CACHE_PUT', url, project, file=sys.stderr)
-            f = open(path, 'wb')
-            f.write(text)
-            f.close()
-
+            with open(path, 'wb') as f:
+                f.write(text)
         return data
 
     @staticmethod
@@ -253,8 +244,7 @@ class Cache(object):
     def match(url):
         apiurl, path = Cache.spliturl(url)
         for pattern in Cache.patterns:
-            match = pattern.match(path)
-            if match:
+            if match := pattern.match(path):
                 return (pattern.pattern,
                         match.group(1) if len(match.groups()) > 0 else None)
         return (False, None)

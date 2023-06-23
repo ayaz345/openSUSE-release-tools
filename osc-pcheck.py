@@ -52,14 +52,14 @@ def do_pcheck(self, subcmd, opts, project):
             continue
         elif sinfo.find('linked') is not None:
             elm = sinfo.find('linked')
-            key = '%s/%s' % (elm.get('project'), elm.get('package'))
+            key = f"{elm.get('project')}/{elm.get('package')}"
             pmap.setdefault(key, []).append(pkg)
             todo.setdefault(elm.get('project'), []).append(elm.get('package'))
         md5s[pkg] = sinfo.get('verifymd5')
     for prj, pkgs in todo.items():
         sinfos = osc.core.get_project_sourceinfo(apiurl, prj, True, *pkgs)
         for pkg, sinfo in sinfos.items():
-            key = '%s/%s' % (prj, pkg)
+            key = f'{prj}/{pkg}'
             for p in pmap[key]:
                 vmd5 = md5s.pop(p)
                 if vmd5 == sinfo.get('verifymd5'):
@@ -77,7 +77,7 @@ def do_pcheck(self, subcmd, opts, project):
                             message = "Scripted push from {project}".format(project=project)
                         api.create(project=project, package=p, target=prj, message=message)
 
-    overview = 'Overview of project {}'.format(project)
+    overview = f'Overview of project {project}'
     print()
     print(overview)
     print('=' * len(overview))
@@ -85,13 +85,13 @@ def do_pcheck(self, subcmd, opts, project):
     print(', '.join(changed))
     print()
     print('Changed & submitted packages: %d' % len(changeSRed.keys()))
-    print(', '.join(['%s(%s)' % (pkg, SR) for pkg, SR in changeSRed.items()]))
+    print(', '.join([f'{pkg}({SR})' for pkg, SR in changeSRed.items()]))
     print()
     print('Packages without link: %d' % len(md5s.keys()))
     print(', '.join(md5s.keys()))
     print()
     print('Packages with errors: %d' % len(errors.keys()))
-    print('\n'.join(['%s: %s' % (p, err) for p, err in errors.items()]))
+    print('\n'.join([f'{p}: {err}' for p, err in errors.items()]))
 
 
 class oscapi:

@@ -34,15 +34,11 @@ class PkglistSection:
         self.command = command
         if pkgs is None:
             self.pkgs = []
-        else:
-            self.pkgs = pkgs
-        if pkgs is None:
             self.to_module = []
-        else:
-            self.to_module = to_module
-        if pkgs is None:
             self.from_module = []
         else:
+            self.pkgs = pkgs
+            self.to_module = to_module
             self.from_module = from_module
 
 
@@ -54,7 +50,7 @@ class PkglistComments:
         self.comment = CommentAPI(apiurl)
 
     def read_summary_file(self, file: str) -> Dict[str, List[str]]:
-        ret = dict()
+        ret = {}
         with open(file, 'r') as f:
             for line in f:
                 pkg, group = line.strip().split(':')
@@ -65,9 +61,7 @@ class PkglistComments:
     def write_summary_file(self, file: str, content: dict):
         output = []
         for pkg in sorted(content):
-            for group in sorted(content[pkg]):
-                output.append(f"{pkg}:{group}")
-
+            output.extend(f"{pkg}:{group}" for group in sorted(content[pkg]))
         with open(file, 'w') as f:
             for line in sorted(output):
                 f.write(line + '\n')
@@ -86,7 +80,7 @@ class PkglistComments:
         if not old_file and not new_file:
             return None
 
-        removed = dict()
+        removed = {}
         for pkg in old_file:
             old_groups = old_file[pkg]
             if new_file.get(pkg):
@@ -102,7 +96,7 @@ class PkglistComments:
             report += "\n".join(textwrap.wrap(paragraph, width=90, break_long_words=False, break_on_hyphens=False))
             report += "\n```\n\n"
 
-        moved = dict()
+        moved = {}
         for pkg in old_file:
             old_groups = old_file[pkg]
             new_groups = new_file.get(pkg)
@@ -118,7 +112,7 @@ class PkglistComments:
             report += "\n".join(textwrap.wrap(paragraph, width=90, break_long_words=False, break_on_hyphens=False))
             report += "\n```\n\n"
 
-        added = dict()
+        added = {}
         for pkg in new_file:
             if pkg in old_file:
                 continue
@@ -145,10 +139,7 @@ class PkglistComments:
             return 0
         report = self.comment.add_marker(report, MARKER)
 
-        if comment:
-            write_comment = report != comment['comment']
-        else:
-            write_comment = True
+        write_comment = report != comment['comment'] if comment else True
         if write_comment:
             if comment:
                 self.comment.delete(comment['id'])
@@ -178,23 +169,20 @@ class PkglistComments:
         return None
 
     def parse_title(self, line: str) -> Optional[PkglistSection]:
-        m = re.match(r'\*\*Add to (.*)\*\*', line)
-        if m:
-            return PkglistSection(PkglistSectionCommend.ADD, pkgs=[], to_module=m.group(1).split(','))
-        m = re.match(r'\*\*Move from (.*) to (.*)\*\*', line)
-        if m:
+        if m := re.match(r'\*\*Add to (.*)\*\*', line):
+            return PkglistSection(
+                PkglistSectionCommend.ADD, pkgs=[], to_module=m[1].split(',')
+            )
+        if m := re.match(r'\*\*Move from (.*) to (.*)\*\*', line):
             return PkglistSection(
                 PkglistSectionCommend.MOVE,
                 pkgs=[],
-                from_module=m.group(1).split(','),
-                to_module=m.group(2).split(','),
+                from_module=m[1].split(','),
+                to_module=m[2].split(','),
             )
-        m = re.match(r'\*\*Remove from (.*)\*\*', line)
-        if m:
+        if m := re.match(r'\*\*Remove from (.*)\*\*', line):
             return PkglistSection(
-                PkglistSectionCommend.REMOVE,
-                pkgs=[],
-                from_module=m.group(1).split(','),
+                PkglistSectionCommend.REMOVE, pkgs=[], from_module=m[1].split(',')
             )
         return None
 
@@ -213,8 +201,7 @@ class PkglistComments:
                 continue
             if in_quote:
                 for pkg in line.split(','):
-                    pkg = pkg.strip()
-                    if pkg:
+                    if pkg := pkg.strip():
                         current_section.pkgs.append(pkg)
         if current_section:
             sections.append(current_section)
@@ -296,12 +283,12 @@ class PkglistComments:
                 text += self.format_add(section)
             elif section.command == PkglistSectionCommend.REMOVE:
                 text += self.format_remove(section)
-        with open(filename + '.new', 'w') as writer:
+        with open(f'{filename}.new', 'w') as writer:
             writer.write(text)
             with open(filename, 'r') as reader:
                 for line in reader:
                     writer.write(line)
-        os.rename(filename + '.new', filename)
+        os.rename(f'{filename}.new', filename)
 
     def check_staging_accept(self, project: str, target: str):
         comments = self.comment.get_comments(project_name=project)
@@ -315,7 +302,7 @@ class PkglistComments:
             raise ValueError('Could not determine devel project or package for the "000package-groups"!')
         with tempfile.TemporaryDirectory() as tmpdirname:
             checkout_package(self.apiurl, project, package, expand_link=True, outdir=tmpdirname)
-            self.apply_commands(tmpdirname + '/summary-staging.txt', sections)
-            self.apply_changes(tmpdirname + '/package-groups.changes', sections, approver)
+            self.apply_commands(f'{tmpdirname}/summary-staging.txt', sections)
+            self.apply_changes(f'{tmpdirname}/package-groups.changes', sections, approver)
             package = Package(tmpdirname)
             package.commit(msg='Approved packagelist changes', skip_local_service_run=True)

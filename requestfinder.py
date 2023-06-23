@@ -18,8 +18,10 @@ class Requestfinder(ToolBase.ToolBase):
         ToolBase.ToolBase.__init__(self)
 
     def fill_package_meta(self, project):
-        self.package_metas = dict()
-        url = osc.core.makeurl(self.apiurl, ['search', 'package'], "match=[@project='%s']" % project)
+        self.package_metas = {}
+        url = osc.core.makeurl(
+            self.apiurl, ['search', 'package'], f"match=[@project='{project}']"
+        )
         root = ET.fromstring(self.cached_GET(url))
         for p in root.findall('package'):
             name = p.attrib['name']
@@ -57,20 +59,17 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
         ToolBase.CommandLineInterface.__init__(self, args, kwargs)
 
         self.cp = ConfigParser()
-        d = load_first_config('opensuse-release-tools')
-        if d:
+        if d := load_first_config('opensuse-release-tools'):
             self.cp.read(os.path.join(d, 'requestfinder.conf'))
 
     def get_optparser(self):
-        parser = ToolBase.CommandLineInterface.get_optparser(self)
-        return parser
+        return ToolBase.CommandLineInterface.get_optparser(self)
 
     def setup_tool(self):
-        tool = Requestfinder()
-        return tool
+        return Requestfinder()
 
     def _load_settings(self, settings, name):
-        section = 'settings {}'.format(name)
+        section = f'settings {name}'
         for option in settings.keys():
             if self.cp.has_option(section, option):
                 settings[option] = self.cp.get(section, option).replace('\n', ' ')
@@ -79,11 +78,10 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
         for a in r.actions:
             if a.type == 'submit':
                 print(' '.join(('#', r.reqid, a.type, a.src_project, a.src_package, a.tgt_project)))
+            elif hasattr(a, 'tgt_package'):
+                print(' '. join(('#', r.reqid, a.type, a.tgt_project, a.tgt_package)))
             else:
-                if hasattr(a, 'tgt_package'):
-                    print(' '. join(('#', r.reqid, a.type, a.tgt_project, a.tgt_package)))
-                else:
-                    print(' '. join(('#', r.reqid, a.type, a.tgt_project)))
+                print(' '. join(('#', r.reqid, a.type, a.tgt_project)))
 
     @cmdln.option('--exclude-project', metavar='PROJECT', action='append', help='exclude review by specific project')
     @cmdln.option('--exclude-user', metavar='USER', action='append', help='exclude review by specific user')
@@ -145,12 +143,13 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
                                 break
                     if not skip:
                         if review.by_package:
-                            print("osc review %s -m '%s' -P %s -p %s %s" %
-                                  (settings['action'], settings['message'],
-                                   review.by_project, review.by_package, r.reqid))
+                            print(
+                                f"osc review {settings['action']} -m '{settings['message']}' -P {review.by_project} -p {review.by_package} {r.reqid}"
+                            )
                         else:
-                            print("osc review %s -m '%s' -P %s %s" %
-                                  (settings['action'], settings['message'], review.by_project, r.reqid))
+                            print(
+                                f"osc review {settings['action']} -m '{settings['message']}' -P {review.by_project} {r.reqid}"
+                            )
                 elif review.by_group:
                     skip = False
                     if settings['exclude-group']:
@@ -160,8 +159,9 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
                                 skip = True
                                 break
                     if not skip:
-                        print("osc review %s -m '%s' -G %s %s" %
-                              (settings['action'], settings['message'], review.by_group, r.reqid))
+                        print(
+                            f"osc review {settings['action']} -m '{settings['message']}' -G {review.by_group} {r.reqid}"
+                        )
                 elif review.by_user:
                     skip = False
                     if settings['exclude-user']:
@@ -171,8 +171,9 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
                                 skip = True
                                 break
                     if not skip:
-                        print("osc review %s -m '%s' -U %s %s" %
-                              (settings['action'], settings['message'], review.by_user, r.reqid))
+                        print(
+                            f"osc review {settings['action']} -m '{settings['message']}' -U {review.by_user} {r.reqid}"
+                        )
 
     @cmdln.option('--query', metavar='filterstr', help='filter string')
     @cmdln.option('--action', metavar='action', help='action (accept/decline)')
@@ -209,7 +210,7 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
         rqs = self.tool.find_requests(settings)
         for r in rqs:
             self.print_actions(r)
-            print("osc rq {} -m '{}' {}".format(settings['action'], settings['message'], r.reqid))
+            print(f"osc rq {settings['action']} -m '{settings['message']}' {r.reqid}")
 
     def help_examples(self):
         return """$ cat > ~/.config/opensuse-release-tools/requestfinder.conf << EOF

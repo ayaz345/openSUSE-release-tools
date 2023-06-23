@@ -209,9 +209,8 @@ class Config(object):
         defaults = {}
         default_ordered = OrderedDict(sorted(DEFAULT.items(), key=lambda i: int(i[1].get('_priority', 99))))
         for prj_pattern in default_ordered:
-            match = re.match(prj_pattern, self.project)
-            if match:
-                project = match.group('project')
+            if match := re.match(prj_pattern, self.project):
+                project = match['project']
                 for k, v in DEFAULT[prj_pattern].items():
                     if k.startswith('_'):
                         continue
@@ -220,14 +219,14 @@ class Config(object):
                     elif isinstance(v, str) and '%(project.lower)s' in v:
                         defaults[k] = v % {'project.lower': project.lower()}
                     elif isinstance(v, str) and '%(version)s' in v:
-                        defaults[k] = v % {'version': match.group('version')}
+                        defaults[k] = v % {'version': match['version']}
                     else:
                         defaults[k] = v
                 if int(DEFAULT[prj_pattern].get('_priority', 99)) != 0:
                     break
 
         if self.remote_values:
-            defaults.update(self.remote_values)
+            defaults |= self.remote_values
 
         # Update the configuration, only when it is necessary
         conf.config[self.project] = self.read_section(self.project, defaults)
@@ -239,15 +238,11 @@ class Config(object):
         """
         cp = OscConfigParser.OscConfigParser(defaults=defaults)
         cp.read(self.conf_file)
-        if cp.has_section(section):
-            return dict(cp.items(section))
-        else:
-            return defaults
+        return dict(cp.items(section)) if cp.has_section(section) else defaults
 
     def fetch_remote(self, apiurl):
         from osclib.core import attribute_value_load
-        config = attribute_value_load(apiurl, self.project, 'Config')
-        if config:
+        if config := attribute_value_load(apiurl, self.project, 'Config'):
             cp = OscConfigParser.OscConfigParser()
             config = u'[remote]\n' + config
             cp.read_string(config)

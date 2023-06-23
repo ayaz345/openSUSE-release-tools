@@ -115,7 +115,7 @@ class DockerImagePublisherRegistry(DockerImagePublisher):
 
     def getDockerArch(self, arch):
         if arch not in self.MAP_ARCH_RPM_DOCKER:
-            raise DockerPublishException("Unknown arch %s" % arch)
+            raise DockerPublishException(f"Unknown arch {arch}")
 
         return self.MAP_ARCH_RPM_DOCKER[arch]
 
@@ -166,25 +166,29 @@ class DockerImagePublisherRegistry(DockerImagePublisher):
         digest = filename
 
         if re.match(r"^[a-f0-9]{64}", digest):
-            digest = "sha256:" + os.path.splitext(digest)[0]
+            digest = f"sha256:{os.path.splitext(digest)[0]}"
 
         if not digest.startswith("sha256"):
             raise DockerPublishException("Invalid manifest contents")
 
-        return {'mediaType': mediaType,
-                'size': os.path.getsize(path + "/" + filename),
-                'digest': digest,
-                'x-osdp-filename': filename}
+        return {
+            'mediaType': mediaType,
+            'size': os.path.getsize(f"{path}/{filename}"),
+            'digest': digest,
+            'x-osdp-filename': filename,
+        }
 
     def convertV1ToV2Manifest(self, path, manifest_v1):
         """Converts the v1 manifest in manifest_v1 to a V2 manifest and returns it"""
 
-        layers = []
-        # The order of layers changed in V1 -> V2
-        for layer_filename in manifest_v1['Layers'][::-1]:
-            layers += [self.getV2ManifestEntry(path, layer_filename,
-                                               "application/vnd.docker.image.rootfs.diff.tar.gzip")]
-
+        layers = [
+            self.getV2ManifestEntry(
+                path,
+                layer_filename,
+                "application/vnd.docker.image.rootfs.diff.tar.gzip",
+            )
+            for layer_filename in manifest_v1['Layers'][::-1]
+        ]
         return {'schemaVersion': 2,
                 'mediaType': "application/vnd.docker.distribution.manifest.v2+json",
                 'config': self.getV2ManifestEntry(path, manifest_v1['Config'],
@@ -196,18 +200,21 @@ class DockerImagePublisherRegistry(DockerImagePublisher):
 
         manifest = None
 
-        with open(image_path + "/manifest.json") as manifest_file:
+        with open(f"{image_path}/manifest.json") as manifest_file:
             manifest = json.load(manifest_file)
 
         manifest_v2 = self.convertV1ToV2Manifest(image_path, manifest[0])
         # Upload blobs
-        if not self.dhc.uploadBlob(image_path + "/" + manifest_v2['config']['x-osdp-filename'],
-                                   manifest_v2['config']['digest']):
+        if not self.dhc.uploadBlob(
+            f"{image_path}/" + manifest_v2['config']['x-osdp-filename'],
+            manifest_v2['config']['digest'],
+        ):
             raise DockerPublishException("Could not upload the image config")
 
         for layer in manifest_v2['layers']:
-            if not self.dhc.uploadBlob(image_path + "/" + layer['x-osdp-filename'],
-                                       layer['digest']):
+            if not self.dhc.uploadBlob(
+                f"{image_path}/" + layer['x-osdp-filename'], layer['digest']
+            ):
                 raise DockerPublishException("Could not upload an image layer")
 
         # Upload the manifest
@@ -288,7 +295,7 @@ class DockerImageFetcherURL(DockerImageFetcher):
             tar_file.write(requests.get(self.url).content)
             with tempfile.TemporaryDirectory() as tar_dir:
                 # Extract the .tar.xz into the dir
-                subprocess.call("tar -xaf '%s' -C '%s'" % (tar_file.name, tar_dir), shell=True)
+                subprocess.call(f"tar -xaf '{tar_file.name}' -C '{tar_dir}'", shell=True)
                 return callback(tar_dir)
 
 
@@ -313,7 +320,7 @@ class DockerImageFetcherOBS(DockerImageFetcher):
     def _getNewestReleaseUrl(self):
         if self.newest_release_url is None:
             buildcontainername = self.url.split("/")[-1]
-            prjurl = self.url + "/.."
+            prjurl = f"{self.url}/.."
             buildcontainerlist_req = requests.get(prjurl)
             buildcontainerlist = xml.fromstring(buildcontainerlist_req.content)
             releases = [entry for entry in buildcontainerlist.xpath("entry/@name") if
@@ -321,7 +328,7 @@ class DockerImageFetcherOBS(DockerImageFetcher):
             releases.sort()
             # Pick the first one with binaries
             for release in releases[::-1] + [buildcontainername]:
-                self.newest_release_url = prjurl + "/" + release
+                self.newest_release_url = f"{prjurl}/{release}"
                 try:
                     self._getFilename()
                     break
@@ -345,16 +352,16 @@ class DockerImageFetcherOBS(DockerImageFetcher):
         """Return {version}-?({flavor}-)Build{build} of the docker file."""
         filename = self._getFilename()
         # Capture everything between arch and filename suffix
-        return re.match(r'[^.]*\.[^.]+-(.*)\.docker\.tar$', filename).group(1)
+        return re.match(r'[^.]*\.[^.]+-(.*)\.docker\.tar$', filename)[1]
 
     def getDockerImage(self, callback):
         """Download the tar and extract it"""
         filename = self._getFilename()
         with tempfile.NamedTemporaryFile() as tar_file:
-            tar_file.write(requests.get(self.newest_release_url + "/" + filename).content)
+            tar_file.write(requests.get(f"{self.newest_release_url}/{filename}").content)
             with tempfile.TemporaryDirectory() as tar_dir:
                 # Extract the .tar into the dir
-                subprocess.call("tar -xaf '%s' -C '%s'" % (tar_file.name, tar_dir), shell=True)
+                subprocess.call(f"tar -xaf '{tar_file.name}' -C '{tar_dir}'", shell=True)
                 return callback(tar_dir)
 
 
@@ -402,16 +409,21 @@ def run():
     # in the help output
     parser = argparse.ArgumentParser(description="Docker image publish script",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("distros", metavar="distro", type=str, nargs="*",
-                        default=[key for key in config],
-                        help="Which distros to check for images to publish.")
+    parser.add_argument(
+        "distros",
+        metavar="distro",
+        type=str,
+        nargs="*",
+        default=list(config),
+        help="Which distros to check for images to publish.",
+    )
 
     args = parser.parse_args()
 
     success = True
 
     for distro in args.distros:
-        print("Handling %s" % distro)
+        print(f"Handling {distro}")
 
         archs_to_update = {}
         fetchers = config[distro]['fetchers']

@@ -60,8 +60,12 @@ class AcceptCommand(object):
             for link in self.api.linked_packages(package):
                 if link['project'] in self.api.rings or link['project'] == self.api.project:
                     print(f"delete {link['project']}/{link['package']}")
-                    delete_package(self.api.apiurl, link['project'], link['package'],
-                                   msg="remove link while accepting delete of {}".format(package))
+                    delete_package(
+                        self.api.apiurl,
+                        link['project'],
+                        link['package'],
+                        msg=f"remove link while accepting delete of {package}",
+                    )
 
     def check_request_for_bugowner(self, to_request, package, id):
         url = self.api.makeurl(['request', str(id)])
@@ -77,7 +81,7 @@ class AcceptCommand(object):
             m = re.search(r'^bugowner:\s*(\S*)', line)
             if not m:
                 continue
-            to_request[package] = {'id': id, 'bugowner': m.group(1)}
+            to_request[package] = {'id': id, 'bugowner': m[1]}
             return
 
     def accept_all(self, projects, force=False, cleanup=True):
@@ -94,7 +98,7 @@ class AcceptCommand(object):
         if accept_all_green:
             projects = self.api.get_staging_projects()
 
-        bugowners_to_request = dict()
+        bugowners_to_request = {}
         for prj in projects:
             project = self.api.prj_from_letter(prj)
 
@@ -103,7 +107,7 @@ class AcceptCommand(object):
                 if accept_all_green:
                     continue
                 if not force:
-                    print('The project "{}" is not yet acceptable.'.format(project))
+                    print(f'The project "{project}" is not yet acceptable.')
                     return False
 
             staging_packages[project] = []
@@ -130,14 +134,19 @@ class AcceptCommand(object):
         opts = {'force': '1'}
 
         print('triggering staging accepts...')
-        for project in staging_packages.keys():
+        for project in staging_packages:
             u = self.api.makeurl(['staging', self.api.project, 'staging_projects', project, 'accept'], opts)
             http_POST(u)
             self.api.switch_flag_in_prj(project, flag='build', state='disable', repository='images')
 
         for req in other_new:
             print(f"Accepting request {req['id']}: {req['package']}")
-            change_request_state(self.api.apiurl, str(req['id']), 'accepted', message='Accept to %s' % self.api.project)
+            change_request_state(
+                self.api.apiurl,
+                str(req['id']),
+                'accepted',
+                message=f'Accept to {self.api.project}',
+            )
 
         for project in sorted(staging_packages.keys()):
             print(f'waiting for staging project {project} to be accepted')
@@ -146,7 +155,9 @@ class AcceptCommand(object):
                 status = self.api.project_status(project, reload=True)
                 if status.get('state') == 'empty':
                     break
-                print('{} requests still staged - waiting'.format(status.find('staged_requests').get('count')))
+                print(
+                    f"{status.find('staged_requests').get('count')} requests still staged - waiting"
+                )
                 time.sleep(1)
 
             self.api.accept_status_comment(project, staging_packages[project])
@@ -185,7 +196,7 @@ class AcceptCommand(object):
         clean_list = set(pkglist) - set(self.api.cnocleanup_packages)
 
         for package in clean_list:
-            print("[cleanup] deleted %s/%s" % (project, package))
+            print(f"[cleanup] deleted {project}/{package}")
             delete_package(self.api.apiurl, project, package, force=True, msg="autocleanup")
 
         return
@@ -208,11 +219,11 @@ class AcceptCommand(object):
             for file in file_list:
                 if file.endswith('.spec') and file != f'{package}.spec':
                     needed_links.add(file[:-5])
-        local_links = set()
-        for link in self.api.linked_packages(package):
-            if link['project'] == project:
-                local_links.add(link['package'])
-
+        local_links = {
+            link['package']
+            for link in self.api.linked_packages(package)
+            if link['project'] == project
+        }
         # Deleting all the packages that no longer have a .spec file
         for link in local_links - needed_links:
             print(f"Deleting package {project}/{link}")
@@ -221,10 +232,7 @@ class AcceptCommand(object):
             try:
                 delete_package(self.api.apiurl, project, link, msg=f"No longer linking to {package}")
             except HTTPError as err:
-                if err.code == 404:
-                    # the package link was not yet created, which was likely a mistake from earlier
-                    pass
-                else:
+                if err.code != 404:
                     # If the package was there bug could not be delete, raise the error
                     raise
 
@@ -267,8 +275,9 @@ class AcceptCommand(object):
         # missleading.
 
         project = self.api.project
-        pred_productversion = self.config.get('always_set_productversion_to', '')
-        if pred_productversion:
+        if pred_productversion := self.config.get(
+            'always_set_productversion_to', ''
+        ):
             curr_version = pred_productversion
         else:
             curr_version = date.today().strftime('%Y%m%d')
@@ -277,7 +286,7 @@ class AcceptCommand(object):
 
         ports_prjs = ['ARM', 'LegacyX86', 'PowerPC', 'RISCV', 'zSystems']
         for ports in ports_prjs:
-            project = self.api.project + ':' + ports
+            project = f'{self.api.project}:{ports}'
             if self.api.item_exists(project):
                 self.update_version_attribute(project, curr_version)
 

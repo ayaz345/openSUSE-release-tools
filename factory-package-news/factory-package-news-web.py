@@ -24,18 +24,15 @@ def get_dir(path):
 def list(dirpath):
     _dir = get_dir(dirpath)
     fn = os.path.join(_dir, 'current')
-    current = None
-    if os.path.exists(fn):
-        current = os.readlink(fn)
-
+    current = os.readlink(fn) if os.path.exists(fn) else None
     ret = ''
     for i in sorted(os.listdir(_dir), reverse=True):
         if not digits_re.match(i):
             continue
-        ret = ret + '<a href="diff/%s">%s</a>' % (i, i)
+        ret = f'{ret}<a href="diff/{i}">{i}</a>'
         if i == current:
-            ret = ret + " &lt;--"
-        ret = ret + '<br/>'
+            ret = f"{ret} &lt;--"
+        ret = f'{ret}<br/>'
     return ret
 
 
@@ -43,25 +40,22 @@ def list(dirpath):
 def current(dirpath):
     _dir = get_dir(dirpath)
     fn = os.path.join(_dir, 'current')
-    if request.method == 'POST':
-        if 'version' not in request.form:
-            return "missing version", 400
-        version = request.form['version']
-        if not digits_re.match(version):
-            return "malformed version", 400
-        if not os.path.exists(os.path.join(_dir, version)):
-            return "invalid version", 400
-        tmpfn = os.path.join(_dir, '.' + version)
-        app.logger.debug(tmpfn)
-        if os.path.exists(tmpfn):
-            os.unlink(tmpfn)
-        os.symlink(version, tmpfn)
-        os.rename(tmpfn, fn)
-        return "ok"
-    else:
-        if not os.path.exists(fn):
-            return "", 404
-        return os.readlink(fn)
+    if request.method != 'POST':
+        return ("", 404) if not os.path.exists(fn) else os.readlink(fn)
+    if 'version' not in request.form:
+        return "missing version", 400
+    version = request.form['version']
+    if not digits_re.match(version):
+        return "malformed version", 400
+    if not os.path.exists(os.path.join(_dir, version)):
+        return "invalid version", 400
+    tmpfn = os.path.join(_dir, f'.{version}')
+    app.logger.debug(tmpfn)
+    if os.path.exists(tmpfn):
+        os.unlink(tmpfn)
+    os.symlink(version, tmpfn)
+    os.rename(tmpfn, fn)
+    return "ok"
 
 
 @app.route('/<path:dirpath>/diff/<version>')
@@ -73,8 +67,14 @@ def diff(dirpath, version):
     if not os.path.exists(os.path.join(_dir, version)):
         return "invalid version", 400
     import subprocess
-    cmd = [os.path.dirname(os.path.abspath(__file__)) + '/factory-package-news.py',
-           'diff', '--dir', _dir, "current", version]
+    cmd = [
+        f'{os.path.dirname(os.path.abspath(__file__))}/factory-package-news.py',
+        'diff',
+        '--dir',
+        _dir,
+        "current",
+        version,
+    ]
     app.logger.debug(cmd)
     response = make_response(subprocess.check_output(cmd))
     response.content_type = "text/plain"

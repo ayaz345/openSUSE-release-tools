@@ -15,23 +15,29 @@ class CheckCommand(object):
         # Check for superseded requests
         for r in project.findall('obsolete_requests/*'):
             if r.get('state') == 'superseded':
-                report.extend('   - Request %s is superseded by %s' % (r.get('id'), r.get('superseded_by')))
+                report.extend(
+                    f"   - Request {r.get('id')} is superseded by {r.get('superseded_by')}"
+                )
 
         # Untracked requests
         for r in project.findall('untracked_requests/*'):
-            report.extend('   - Request %s is no tracked but is open for the project' % r.get('id'))
+            report.extend(
+                f"   - Request {r.get('id')} is no tracked but is open for the project"
+            )
 
         # Status of obsolete requests
         for r in project.findall('obsolete_requests/*'):
             if r.get('state') == 'superseded':
                 continue
-            report.append('   - %s: %s' % (r.get('package'), r.get('state')))
+            report.append(f"   - {r.get('package')}: {r.get('state')}")
             if not verbose:
                 break
 
         # Missing reviews
         for r in project.findall('missing_reviews/review'):
-            report.append('   - %s: Missing reviews: %s' % (r.get('package'), self.api.format_review(r)))
+            report.append(
+                f"   - {r.get('package')}: Missing reviews: {self.api.format_review(r)}"
+            )
             if not verbose:
                 break
 
@@ -39,7 +45,7 @@ class CheckCommand(object):
         if project.find('building_repositories/repo') is not None:
             report.append('   - At least following repositories are still building:')
         for r in project.findall('building_repositories/*'):
-            report.append('     %s/%s: %s' % (r.get('repository'), r.get('arch'), r.get('state')))
+            report.append(f"     {r.get('repository')}/{r.get('arch')}: {r.get('state')}")
             if not verbose:
                 break
 
@@ -47,29 +53,34 @@ class CheckCommand(object):
         if project.find('broken_packages/package') is not None:
             report.append('   - Following packages are broken:')
         for r in project.findall('broken_packages/package'):
-            report.append('     %s (%s): %s' % (r.get('package'), r.get('repository'), r.get('state')))
+            report.append(
+                f"     {r.get('package')} ({r.get('repository')}): {r.get('state')}"
+            )
             if not verbose:
                 break
 
         # openQA results
-        for check in project.findall('missing_checks/*'):
-            report.append('   - Missing check: ' + check.get('name'))
-
+        report.extend(
+            '   - Missing check: ' + check.get('name')
+            for check in project.findall('missing_checks/*')
+        )
         for check in project.findall('checks/*'):
             state = check.find('state').text
             if state != 'success':
-                info = "   - %s check: %s" % (state, check.get('name'))
+                info = f"   - {state} check: {check.get('name')}"
                 url = check.find('url')
                 if url is not None:
-                    info += " " + url.text
+                    info += f" {url.text}"
                 report.append(info)
                 break
 
         if project.get('state') == 'acceptable':
-            report.insert(0, ' ++ Acceptable staging project %s' % project.get('name'))
+            report.insert(0, f" ++ Acceptable staging project {project.get('name')}")
         elif project.get('state') != 'empty':
-            report.insert(0, ' -- %s Project %s still needs attention' % (project.get('state').upper(),
-                                                                          project.get('name')))
+            report.insert(
+                0,
+                f" -- {project.get('state').upper()} Project {project.get('name')} still needs attention",
+            )
 
         return report
 
@@ -80,9 +91,7 @@ class CheckCommand(object):
 
         """
         info = self.api.project_status(project)
-        if info.get('state') == 'empty':
-            return []
-        return self._report(info, False) + ['']
+        return [] if info.get('state') == 'empty' else self._report(info, False) + ['']
 
     def perform(self, project):
         """

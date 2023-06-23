@@ -58,7 +58,7 @@ class OpenQABot(ReviewBot.ReviewBot):
     def check_requests(self):
 
         # to be filled by repos of active
-        self.incident_repos = dict()
+        self.incident_repos = {}
         self.update_test_builds = {}
         self.pending_target_repos = set()
         self.openqa_jobs = {}
@@ -76,7 +76,7 @@ class OpenQABot(ReviewBot.ReviewBot):
         # now make sure the jobs are for current repo
         for prj, u in self.tgt_repo[self.openqa.baseurl].items():
             if prj in self.pending_target_repos:
-                self.logger.debug("Do not trigger for " + prj)
+                self.logger.debug(f"Do not trigger for {prj}")
                 continue
             self.trigger_build_for_target(prj, u)
 
@@ -98,16 +98,15 @@ class OpenQABot(ReviewBot.ReviewBot):
         # now add the open incidents
         m.update(json.dumps(incidents, sort_keys=True).encode('utf-8'))
         digest = m.hexdigest()
-        open_incidents = sorted(incidents.keys())
-        if open_incidents:
+        if open_incidents := sorted(incidents.keys()):
             digest += ':' + ','.join(open_incidents)
         return digest
 
     def is_incident_in_testing(self, incident):
         # hard coded for now as we only run this code for SUSE Maintenance workflow
-        project = 'SUSE:Maintenance:{}'.format(incident)
+        project = f'SUSE:Maintenance:{incident}'
 
-        xpath = "(state/@name='review') and (action/source/@project='{}' and action/@type='maintenance_release')".format(project)
+        xpath = f"(state/@name='review') and (action/source/@project='{project}' and action/@type='maintenance_release')"
         res = osc.core.search(self.apiurl, request=xpath)['request']
         # return the one and only (or None)
         return res.find('request')
@@ -117,7 +116,7 @@ class OpenQABot(ReviewBot.ReviewBot):
         get incident numbers from SUSE:Maintenance:Test project
         returns dict with openQA var name : string with numbers
         """
-        self.logger.debug("calculate_incidents: {}".format(pformat(incidents)))
+        self.logger.debug(f"calculate_incidents: {pformat(incidents)}")
         l_incidents = []
         for kind, prj in incidents.items():
             packages = osc.core.meta_get_packagelist(self.apiurl, prj)
@@ -136,14 +135,13 @@ class OpenQABot(ReviewBot.ReviewBot):
                 req_.read(req)
                 src_prjs = {a.src_project for a in req_.actions}
                 if SUSEUpdate.kgraft_target(self.apiurl, src_prjs.pop()):
-                    self.logger.debug(
-                        "calculate_incidents: Incident is kgraft - {} ".format(incident))
+                    self.logger.debug(f"calculate_incidents: Incident is kgraft - {incident} ")
                     continue
 
                 incidents.append(incident)
 
-            l_incidents.append((kind + '_TEST_ISSUES', ','.join(incidents)))
-        self.logger.debug("Calculate incidents:{}".format(pformat(l_incidents)))
+            l_incidents.append((f'{kind}_TEST_ISSUES', ','.join(incidents)))
+        self.logger.debug(f"Calculate incidents:{pformat(l_incidents)}")
         return l_incidents
 
     def jobs_for_target(self, data, build=None):
@@ -160,7 +158,7 @@ class OpenQABot(ReviewBot.ReviewBot):
             values['build'] = build
         else:
             values['test'] = data['test']
-        self.logger.debug("Get jobs: {}".format(pformat(values)))
+        self.logger.debug(f"Get jobs: {pformat(values)}")
         return self.openqa.openqa_request('GET', 'jobs', values)['jobs']
 
     # we don't know the current BUILD and querying all jobs is too expensive
@@ -173,7 +171,7 @@ class OpenQABot(ReviewBot.ReviewBot):
         try:
             repohash = self.calculate_repo_hash(data['repos'], self.incident_repos.get(prj, {}))
         except HTTPError as e:
-            self.logger.debug("REPOHASH not calculated with response {}".format(e))
+            self.logger.debug(f"REPOHASH not calculated with response {e}")
             return
 
         buildnr = None
@@ -212,10 +210,10 @@ class OpenQABot(ReviewBot.ReviewBot):
         s['BUILD'] = buildnr
         s['REPOHASH'] = repohash
         s['_OBSOLETE'] = '1'
-        self.logger.debug("Prepared: {}".format(pformat(s)))
+        self.logger.debug(f"Prepared: {pformat(s)}")
         if not self.dryrun:
             try:
-                self.logger.info("Openqa isos POST {}".format(pformat(s)))
+                self.logger.info(f"Openqa isos POST {pformat(s)}")
                 self.openqa.openqa_request('POST', 'isos', data=s, retries=1)
             except Exception as e:
                 self.logger.error(e)
@@ -234,7 +232,7 @@ class OpenQABot(ReviewBot.ReviewBot):
         tgt_prjs = {a.tgt_project for a in req.actions}
         jobs = self.openqa_jobs.get(build, [])
         qa_status = self.calculate_qa_status(jobs)
-        if qa_status == QA_UNKNOWN or qa_status == QA_INPROGRESS:
+        if qa_status in [QA_UNKNOWN, QA_INPROGRESS]:
             return jobs, qa_status
 
         # check if the repo jobs include the incident
@@ -250,9 +248,9 @@ class OpenQABot(ReviewBot.ReviewBot):
                     if incident_id in value.split(','):
                         foundissue = True
             if not foundissue:
-                self.logger.info("Repo job {} not for {} - ignoring".format(job['id'], incident_id))
+                self.logger.info(f"Repo job {job['id']} not for {incident_id} - ignoring")
                 return jobs, QA_INPROGRESS
-            # print(foundissue, incident_id, json.dumps(job['settings'], indent=4))
+                # print(foundissue, incident_id, json.dumps(job['settings'], indent=4))
 
         jobs += repo_jobs
         return jobs, self.calculate_qa_status(jobs)
@@ -276,18 +274,14 @@ class OpenQABot(ReviewBot.ReviewBot):
 
             if job['state'] not in ('cancelled', 'done'):
                 in_progress = True
-            else:
-                if job['result'] != 'passed' and job['result'] != 'softfailed':
-                    has_failed = True
+            elif job['result'] not in ['passed', 'softfailed']:
+                has_failed = True
 
         if not j:
             return QA_UNKNOWN
         if in_progress:
             return QA_INPROGRESS
-        if has_failed:
-            return QA_FAILED
-
-        return QA_PASSED
+        return QA_FAILED if has_failed else QA_PASSED
 
     # escape markdown
     @staticmethod
@@ -307,19 +301,17 @@ class OpenQABot(ReviewBot.ReviewBot):
 
     def summarize_one_openqa_job(self, job):
         testurl = osc.core.makeurl(self.openqa.baseurl, ['tests', str(job['id'])])
-        if not job['result'] in ['passed', 'failed', 'softfailed']:
+        if job['result'] not in ['passed', 'failed', 'softfailed']:
             rstring = job['result']
             if rstring == 'none':
                 return None
             return '\n- [{!s}]({!s}) is {!s}'.format(self.job_test_name(job), testurl, rstring)
 
-        modstrings = []
-        for module in job['modules']:
-            if module['result'] != 'failed':
-                continue
-            modstrings.append(self.get_step_url(testurl, module['name']))
-
-        if modstrings:
+        if modstrings := [
+            self.get_step_url(testurl, module['name'])
+            for module in job['modules']
+            if module['result'] == 'failed'
+        ]:
             return '\n- [{!s}]({!s}) failed in {!s}'.format(self.job_test_name(job), testurl, ','.join(modstrings))
         elif job['result'] == 'failed':  # rare case: fail without module fails
             return '\n- [{!s}]({!s}) failed'.format(self.job_test_name(job), testurl)
@@ -382,8 +374,8 @@ class OpenQABot(ReviewBot.ReviewBot):
                     self.comment_write(state='done', message=msg, request=req, result='accepted')
                     return True
                 else:
-                    self.logger.debug("request {} waits for build".format(req.reqid))
-            elif qa_state == QA_FAILED or qa_state == QA_PASSED:
+                    self.logger.debug(f"request {req.reqid} waits for build")
+            elif qa_state in [QA_FAILED, QA_PASSED]:
                 if qa_state == QA_PASSED:
                     msg = "openQA tests passed\n"
                     result = 'accepted'
@@ -413,17 +405,15 @@ class OpenQABot(ReviewBot.ReviewBot):
         """Return previous comments (should be one)."""
         comments = self.commentapi.get_comments(request_id=request_id, project_name=project_name)
         comment, info = self.commentapi.comment_find(comments, self.bot_name)
-        if comment:
-            # we only care for two fields
-            return {'id': comment['id'], 'revision': info['revision']}
-
-        return {}
+        return {'id': comment['id'], 'revision': info['revision']} if comment else {}
 
     def check_product_arch(self, job, product_prefix, pmap, arch):
         need = False
-        settings = {'VERSION': pmap['version']}
-        settings['ARCH'] = arch if arch else 'x86_64'
-        settings['DISTRI'] = pmap.get('distri', 'sle')
+        settings = {
+            'VERSION': pmap['version'],
+            'ARCH': arch if arch else 'x86_64',
+            'DISTRI': pmap.get('distri', 'sle'),
+        }
         issues = pmap.get('issues', {})
         issues['OS_TEST_ISSUES'] = issues.get('OS_TEST_ISSUES', product_prefix)
         required_issue = pmap.get('required_issue', False)
@@ -449,16 +439,15 @@ class OpenQABot(ReviewBot.ReviewBot):
         update.apiurl = self.apiurl
         update.logger = self.logger
         posts = []
-        for j in update.settings(
-                update.maintenance_project + ':' + str(job['id']),
-                product_key):
+        for j in update.settings(f'{update.maintenance_project}:' + str(job['id']), product_key):
             if not job.get('openqa_build'):
                 job['openqa_build'] = update.get_max_revision(job)
             if not job.get('openqa_build'):
                 self.wait_for_build.add(str(job['id']))
                 return []
-            self.incident_repos.setdefault(product_key, dict())[
-                str(job['id'])] = job.get('openqa_build')
+            self.incident_repos.setdefault(product_key, {})[
+                str(job['id'])
+            ] = job.get('openqa_build')
             j['BUILD'] += '.' + str(job['openqa_build'])
             j.update(settings)
             # kGraft jobs can have different version
@@ -477,7 +466,7 @@ class OpenQABot(ReviewBot.ReviewBot):
         else:
             posts += self.check_product_arch(job, product_prefix, pmap, None)
 
-        self.logger.debug("Pmap: {} Posts: {}".format(pmap, posts))
+        self.logger.debug(f"Pmap: {pmap} Posts: {posts}")
         return posts
 
     def incident_openqa_jobs(self, s):
@@ -495,21 +484,21 @@ class OpenQABot(ReviewBot.ReviewBot):
 
     # for SUSE we use mesh, for openSUSE we limit the jobs to open release requests
     def check_opensuse_incidents(self):
-        requests = dict()  # collecting unique requests
+        requests = {}
         self.wait_for_build = set()
         for prj in self.tgt_repo[self.openqa.baseurl].keys():
             for r in self.ids_project(prj, 'maintenance_release'):
                 requests[r.reqid] = r
 
         # to be stored in settings
-        issues = dict()
+        issues = {}
         for req in sorted(requests.keys()):
             req = requests[req]
-            types = set([a.type for a in req.actions])
+            types = {a.type for a in req.actions}
             if 'maintenance_release' not in types:
                 continue
 
-            src_prjs = set([a.src_project for a in req.actions])
+            src_prjs = {a.src_project for a in req.actions}
             if len(src_prjs) != 1:
                 raise Exception("can't handle maintenance_release from different incidents")
             build = src_prjs.pop()
@@ -533,9 +522,11 @@ class OpenQABot(ReviewBot.ReviewBot):
     def check_suse_incidents(self):
         self.wait_for_build = set()
         for inc in requests.get('https://maintenance.suse.de/api/incident/active/').json():
-            self.logger.info("Incident number: {}".format(inc))
+            self.logger.info(f"Incident number: {inc}")
 
-            mesh_job = requests.get('https://maintenance.suse.de/api/incident/' + inc).json()
+            mesh_job = requests.get(
+                f'https://maintenance.suse.de/api/incident/{inc}'
+            ).json()
 
             if mesh_job['meta']['state'] in ['final', 'gone']:
                 continue
@@ -543,18 +534,18 @@ class OpenQABot(ReviewBot.ReviewBot):
             self.test_job(mesh_job['base'])
 
     def test_job(self, mesh_job):
-        self.logger.debug("Called test_job with: {}".format(mesh_job))
+        self.logger.debug(f"Called test_job with: {mesh_job}")
         incident_project = str(mesh_job['project'])
         try:
             comment_info = self.find_obs_request_comment(project_name=incident_project)
         except HTTPError as e:
-            self.logger.debug("Couldn't load comments - {}".format(e))
+            self.logger.debug(f"Couldn't load comments - {e}")
             return
         comment_build = str(comment_info.get('revision', ''))
 
         openqa_posts = []
         for prod in self.api_map.keys():
-            self.logger.debug("{} -- product in apimap".format(prod))
+            self.logger.debug(f"{prod} -- product in apimap")
             openqa_posts += self.check_product(mesh_job, prod)
         openqa_jobs = []
         for s in openqa_posts:
@@ -563,15 +554,18 @@ class OpenQABot(ReviewBot.ReviewBot):
                 continue
             jobs = self.incident_openqa_jobs(s)
             # take the project comment as marker for not posting jobs
-            if not len(jobs) and comment_build != str(mesh_job['openqa_build']):
-                if self.dryrun:
-                    self.logger.info('WOULD POST:{}'.format(pformat(json.dumps(s, sort_keys=True))))
-                else:
-                    self.logger.info("Posted: {}".format(pformat(json.dumps(s, sort_keys=True))))
-                    self.openqa.openqa_request('POST', 'isos', data=s, retries=1)
-                    openqa_jobs += self.incident_openqa_jobs(s)
+            if (
+                not len(jobs)
+                and comment_build != str(mesh_job['openqa_build'])
+                and self.dryrun
+            ):
+                self.logger.info('WOULD POST:{}'.format(pformat(json.dumps(s, sort_keys=True))))
+            elif not len(jobs) and comment_build != str(mesh_job['openqa_build']):
+                self.logger.info("Posted: {}".format(pformat(json.dumps(s, sort_keys=True))))
+                self.openqa.openqa_request('POST', 'isos', data=s, retries=1)
+                openqa_jobs += self.incident_openqa_jobs(s)
             else:
-                self.logger.info("{} got {}".format(pformat(s), len(jobs)))
+                self.logger.info(f"{pformat(s)} got {len(jobs)}")
                 openqa_jobs += jobs
 
         self.openqa_jobs[incident_project] = openqa_jobs
@@ -590,6 +584,10 @@ class OpenQABot(ReviewBot.ReviewBot):
         if qa_status == QA_FAILED:
             result = 'declined'
             state = 'done'
-        self.comment_write(project=str(incident_project), state=state,
-                           result=result, message=msg,
-                           info_extra={'revision': str(mesh_job.get('openqa_build'))})
+        self.comment_write(
+            project=incident_project,
+            state=state,
+            result=result,
+            message=msg,
+            info_extra={'revision': str(mesh_job.get('openqa_build'))},
+        )

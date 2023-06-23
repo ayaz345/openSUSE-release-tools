@@ -52,34 +52,34 @@ class ListCommand:
                 if not hide_source and action.find('source') is not None:
                     source_project = action.find('source').get('project')
                     source_project = self.project_strip(source_project)
-                    line += ' ({})'.format(Fore.YELLOW + source_project + Fore.RESET)
+                    line += f' ({Fore.YELLOW + source_project + Fore.RESET})'
                 if action.get('type') == 'delete':
-                    line += ' (' + Fore.RED + 'delete request' + Fore.RESET + ')'
+                    line += f' ({Fore.RED}delete request{Fore.RESET})'
 
-                message = self.api.ignore_format(request_id)
-                if message:
+                if message := self.api.ignore_format(request_id):
                     line += '\n' + Fore.WHITE + message + Fore.RESET
 
                 print(' ', line)
 
         if len(splitter.other):
-            non_ring_packages = []
-            for request in splitter.other:
-                non_ring_packages.append(request.find('./action/target').get('package'))
+            non_ring_packages = [
+                request.find('./action/target').get('package')
+                for request in splitter.other
+            ]
             print('Not in a ring: ' + ' '.join(sorted(non_ring_packages)))
 
         # Print requests not handled by staging process to highlight them.
         splitter.stageable = False
         for request_type in ('change_devel', 'set_bugowner'):
             splitter.reset()
-            splitter.filter_add('./action[@type="{}"]'.format(request_type))
+            splitter.filter_add(f'./action[@type="{request_type}"]')
             requests = splitter.filter_only()
             if len(requests):
-                print('\n{} request(s)'.format(request_type))
+                print(f'\n{request_type} request(s)')
                 for request in sorted(requests, key=lambda s: s.get('id')):
-                    print('  {} {}'.format(
-                        self.api.makeurl(['request', 'show', request.get('id')]),
-                        request.find('./action/target').get('package')))
+                    print(
+                        f"  {self.api.makeurl(['request', 'show', request.get('id')])} {request.find('./action/target').get('package')}"
+                    )
 
     def project_strip(self, source_project):
         home = source_project.startswith('home:')
@@ -89,6 +89,6 @@ class ListCommand:
                 source_project = source_project[len(prefix):]
 
         if home:
-            source_project = '~' + source_project
+            source_project = f'~{source_project}'
 
         return source_project

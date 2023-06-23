@@ -68,7 +68,7 @@ class DepTool(cmdln.Cmdln):
                 name = os.path.basename(os.path.splitext(r)[0])
                 repo = self.pool.add_repo(name)
                 repo.add_solv(r)
-                logger.debug("add repo %s" % name)
+                logger.debug(f"add repo {name}")
             else:
                 try:
                     if r.endswith('.repo'):
@@ -77,12 +77,12 @@ class DepTool(cmdln.Cmdln):
                         name = r
                         r += '.repo'
                     parser.read('/'.join((repodir, r)))
-                    if onlyenabled is False or parser.get(name, 'enabled') == '1':
+                    if not onlyenabled or parser.get(name, 'enabled') == '1':
                         repo = self.pool.add_repo(name)
                         repo.add_solv(solvfile % name)
                         if parser.has_option(name, 'priority'):
                             repo.priority = parser.getint(name, 'priority')
-                        logger.debug("add repo %s" % name)
+                        logger.debug(f"add repo {name}")
                 except Exception as e:
                     logger.error(e)
 
@@ -166,13 +166,13 @@ class DepTool(cmdln.Cmdln):
                     if reason == solv.Solver.SOLVER_REASON_WEAKDEP:
                         for v in solver.describe_weakdep_decision(s):
                             reason2, s2, dep = v
-                            print("-> %s %s %s" % (s2.name, REASONS[reason2], dep))
+                            print(f"-> {s2.name} {REASONS[reason2]} {dep}")
                     else:
-                        print("-> %s %s %s" % (s.name, REASONS[reason], ruleinfo))
+                        print(f"-> {s.name} {REASONS[reason]} {ruleinfo}")
 
             if opts.size:
                 size = trans.calc_installsizechange()
-                print("SIZE %s" % (size))
+                print(f"SIZE {size}")
 
             return True
 
@@ -212,13 +212,14 @@ class DepTool(cmdln.Cmdln):
             if sel.isempty():
                 logger.error("%s not found", n)
             for s in sel.solvables():
-                print('- {}-{}@{}:'.format(s.name, s.evr, s.arch))
+                print(f'- {s.name}-{s.evr}@{s.arch}:')
                 for kind in ('RECOMMENDS', 'REQUIRES', 'SUPPLEMENTS', 'ENHANCES', 'PROVIDES', 'SUGGESTS'):
-                    deps = s.lookup_deparray(getattr(solv, 'SOLVABLE_' + kind), 0)
-                    if deps:
-                        print('  {}:'.format(kind))
+                    if deps := s.lookup_deparray(
+                        getattr(solv, f'SOLVABLE_{kind}'), 0
+                    ):
+                        print(f'  {kind}:')
                         for dep in deps:
-                            print('    - {}'.format(dep))
+                            print(f'    - {dep}')
 
     @cmdln.option("-r", "--repo", dest="repo", action="append",
                   help="repo to use")
@@ -234,7 +235,7 @@ class DepTool(cmdln.Cmdln):
         for r in relation:
             i = self.pool.str2id(r)
             for s in self.pool.whatprovides(i):
-                print('- {}-{}@{}:'.format(s.name, s.evr, s.arch))
+                print(f'- {s.name}-{s.evr}@{s.arch}:')
 
     @cmdln.option("-r", "--repo", dest="repo", action="append",
                   help="repo to use")
@@ -256,7 +257,7 @@ class DepTool(cmdln.Cmdln):
                 if name.startswith('pattern-order()'):
                     # XXX: no function in bindings to do that properly
                     order = name[name.find('= ') + 2:]
-            print("{} {}".format(order, s.name))
+            print(f"{order} {s.name}")
 
     @cmdln.option("--providers", action="store_true",
                   help="also show other providers")
@@ -278,7 +279,7 @@ class DepTool(cmdln.Cmdln):
             kinds.append('PROVIDES')
 
         for kind in kinds:
-            kindid = getattr(solv, 'SOLVABLE_' + kind, 0)
+            kindid = getattr(solv, f'SOLVABLE_{kind}', 0)
             kindprinted = False
             if opts.relation:
                 # FIXME: doesnt work
@@ -288,7 +289,7 @@ class DepTool(cmdln.Cmdln):
                         logger.info('nothing %s %s', kind.lower(), r)
                         continue
                     for s in sel.solvables():
-                        print('  {}: {}-{}@{}'.format(r, s.name, s.evr, s.arch))
+                        print(f'  {r}: {s.name}-{s.evr}@{s.arch}')
             else:
                 for n in args:
                     sel = self.pool.select(n, solv.Selection.SELECTION_NAME)
@@ -312,7 +313,7 @@ class DepTool(cmdln.Cmdln):
                                 if not kindprinted:
                                     print(kind)
                                     kindprinted = True
-                                print('  {}: {}-{}@{}'.format(p, r.name, r.evr, r.arch))
+                                print(f'  {p}: {r.name}-{r.evr}@{r.arch}')
 
     @cmdln.option("-r", "--repo", dest="repo", action="append",
                   help="repo to use")
@@ -331,7 +332,7 @@ class DepTool(cmdln.Cmdln):
             p = self.pool.str2id(r)
             for kind in kinds:
                 kindprinted = False
-                kindid = getattr(solv, 'SOLVABLE_' + kind, 0)
+                kindid = getattr(solv, f'SOLVABLE_{kind}', 0)
                 sel = self.pool.matchdepid(p, solv.Selection.SELECTION_REL | solv.Selection.SELECTION_FLAT, kindid)
                 if sel.isempty():
                     logger.debug('nothing %s %s', kind.lower(), p)
@@ -340,7 +341,7 @@ class DepTool(cmdln.Cmdln):
                     if not kindprinted:
                         print(kind)
                         kindprinted = True
-                    print('  {}-{}@{}'.format(r.name, r.evr, r.arch))
+                    print(f'  {r.name}-{r.evr}@{r.arch}')
 
     @cmdln.option("-r", "--repo", dest="repo", action="append",
                   help="repo to use")
@@ -359,10 +360,8 @@ class DepTool(cmdln.Cmdln):
             for s in sel.solvables():
                 for attr in sattrs:
                     sid = getattr(solv, attr, 0)
-                    # pretty stupid, just lookup strings
-                    value = s.lookup_str(sid)
-                    if value:
-                        print('{}: {}'.format(attr[len('SOLVABLE_'):], value))
+                    if value := s.lookup_str(sid):
+                        print(f"{attr[len('SOLVABLE_'):]}: {value}")
 
 
 if __name__ == "__main__":

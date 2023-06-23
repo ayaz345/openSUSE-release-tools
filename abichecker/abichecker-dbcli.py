@@ -40,9 +40,9 @@ class BoilderPlate(cmdln.Cmdln):
         """
 
         for req in self.session.query(DB.Request).all():
-            print('%s %s'%(req.id, req.state))
+            print(f'{req.id} {req.state}')
             for a in req.abichecks:
-                print('  %s %s %s'%(a.dst_project, a.dst_package, a.result))
+                print(f'  {a.dst_project} {a.dst_package} {a.result}')
                 for r in a.reports:
                     print('    %s %10s %-25s %s'%(r.id, r.arch, r.dst_lib, r.result))
 
@@ -53,7 +53,7 @@ class BoilderPlate(cmdln.Cmdln):
         ${cmd_option_list}
         """
 
-        oldest = datetime.today() - timedelta(days = 365)
+        oldest = datetime.now() - timedelta(days = 365)
 
         requests = self.session.query(DB.Request).filter(DB.Request.t_updated < oldest)
         for req in requests:
@@ -97,8 +97,10 @@ class BoilderPlate(cmdln.Cmdln):
         """
 
         request = self.session.query(DB.Request).filter(DB.Request.id == request_id).one()
-        logentry = DB.Log(request_id = request_id,
-            line = 'manually setting state to seen. previous state: %s (%s)'%(request.state, request.result))
+        logentry = DB.Log(
+            request_id=request_id,
+            line=f'manually setting state to seen. previous state: {request.state} ({request.result})',
+        )
         request.state = 'seen'
         request.result = None
         self.session.add(logentry)

@@ -21,12 +21,13 @@ class StagingReport(object):
 
     def _package_url(self, package):
         link = '/package/live_build_log/%s/%s/%s/%s'
-        link = link % (package.get('project'),
-                       package.get('package'),
-                       package.get('repository'),
-                       package.get('arch'))
-        text = '[%s](%s)' % (package.get('arch'), link)
-        return text
+        link %= (
+            package.get('project'),
+            package.get('package'),
+            package.get('repository'),
+            package.get('arch'),
+        )
+        return f"[{package.get('arch')}]({link})"
 
     def old_enough(self, _date):
         time_delta = datetime.utcnow() - _date
@@ -56,13 +57,13 @@ class StagingReport(object):
             groups[package.get('package')].append(package)
 
         failing_lines = [
-            '* Build failed %s (%s)' % (key, ', '.join(self._package_url(p) for p in value))
+            f"* Build failed {key} ({', '.join(self._package_url(p) for p in value)})"
             for key, value in groups.items()
         ]
 
         report = '\n'.join(failing_lines[:MAX_LINES])
         if len(failing_lines) > MAX_LINES:
-            report += '* and more (%s) ...' % (len(failing_lines) - MAX_LINES)
+            report += f'* and more ({len(failing_lines) - MAX_LINES}) ...'
         return report
 
     def report_checks(self, info):
@@ -70,7 +71,7 @@ class StagingReport(object):
         for check in info.findall('checks/check'):
             state = check.find('state').text
             links_state.setdefault(state, [])
-            links_state[state].append('[{}]({})'.format(check.get('name'), check.find('url').text))
+            links_state[state].append(f"[{check.get('name')}]({check.find('url').text})")
 
         lines = []
         failure = False
@@ -78,14 +79,14 @@ class StagingReport(object):
             if len(links) > MAX_LINES:
                 extra = len(links) - MAX_LINES
                 links = links[:MAX_LINES]
-                links.append('and {} more...'.format(extra))
+                links.append(f'and {extra} more...')
 
-            lines.append('- {}'.format(state))
+            lines.append(f'- {state}')
             if state != 'success':
-                lines.extend(['  - {}'.format(link) for link in links])
+                lines.extend([f'  - {link}' for link in links])
                 failure = True
             else:
-                lines[-1] += ': {}'.format(', '.join(links))
+                lines[-1] += f": {', '.join(links)}"
 
         return '\n'.join(lines).strip(), failure
 
@@ -127,11 +128,11 @@ class StagingReport(object):
     def cc_list(self, project, info):
         if not self.api.is_adi_project(project):
             return ""
-        ccs = set()
-        for req in info.findall('staged_requests/request'):
-            ccs.add("@" + req.get('creator'))
-        str = "Submitters: " + " ".join(sorted(list(ccs))) + "\n\n"
-        return str
+        ccs = {
+            "@" + req.get('creator')
+            for req in info.findall('staged_requests/request')
+        }
+        return "Submitters: " + " ".join(sorted(list(ccs))) + "\n\n"
 
 
 if __name__ == '__main__':

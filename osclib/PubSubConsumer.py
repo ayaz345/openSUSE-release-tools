@@ -58,7 +58,7 @@ class PubSubConsumer(object):
 
     def still_alive(self):
         # output something so gocd doesn't consider it stalled
-        self.logger.info('Still alive: {}'.format(datetime.now().time()))
+        self.logger.info(f'Still alive: {datetime.now().time()}')
         if self._run_until and time.time() > self._run_until:
             self.stop()
         else:
@@ -391,9 +391,7 @@ def main():
                   '-35s %(lineno) -5d: %(message)s')
 
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    amqp_prefix = 'opensuse'
-    if len(sys.argv) > 1:
-        amqp_prefix = sys.argv[1]
+    amqp_prefix = sys.argv[1] if len(sys.argv) > 1 else 'opensuse'
     example = PubSubConsumer(amqp_prefix, logging.getLogger(__name__))
     try:
         example.run()

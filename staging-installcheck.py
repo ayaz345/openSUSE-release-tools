@@ -63,8 +63,9 @@ class InstallChecker(object):
         # extract >= and the like
         provide = provides.get('dep')
         provide = provide.split(' ')[0]
-        comments.append('{} provides {} required by {}'.format(
-            fileinfo.find('name').text, provide, requiredby.get('name')))
+        comments.append(
+            f"{fileinfo.find('name').text} provides {provide} required by {requiredby.get('name')}"
+        )
         url = api.makeurl(['build', api.project, api.cmain_repo, 'x86_64', '_repository', requiredby.get('name') + '.rpm'],
                           {'view': 'fileinfo_ext'})
         reverse_fileinfo = ET.parse(osc.core.http_GET(url)).getroot()
@@ -85,7 +86,7 @@ class InstallChecker(object):
                 if provided_by.get('name') in built_binaries:
                     provided_found = True
                 else:
-                    comments.append('  also provided by {} -> ignoring'.format(provided_by.get('name')))
+                    comments.append(f"  also provided by {provided_by.get('name')} -> ignoring")
                     alternative_found = True
 
             if not alternative_found:
@@ -103,13 +104,12 @@ class InstallChecker(object):
 
         if result:
             return True
-        else:
-            comments.append('Error: missing alternative provides for {}'.format(provide))
-            return False
+        comments.append(f'Error: missing alternative provides for {provide}')
+        return False
 
     @memoize(session=True)
     def pkg_with_multibuild_flavors(self, package):
-        ret = set([package])
+        ret = {package}
         # Add all multibuild flavors
         mainprjresult = ET.fromstringlist(osc.core.show_results_meta(self.api.apiurl, self.api.project, multibuild=True))
         for pkg in mainprjresult.xpath(f"result/status[starts-with(@package,'{package}:')]"):
@@ -120,7 +120,7 @@ class InstallChecker(object):
     def check_delete_request(self, req, to_ignore, to_delete, comments):
         package = req.get('package')
         if package in to_ignore or self.ignore_deletes:
-            self.logger.info('Delete request for package {} ignored'.format(package))
+            self.logger.info(f'Delete request for package {package} ignored')
             return True
 
         pkg_flavors = self.pkg_with_multibuild_flavors(package)
@@ -168,7 +168,7 @@ class InstallChecker(object):
             match = ignore_re.search(comment['comment'].replace('\r', ''))
             if not match:
                 continue
-            args = match.group('args').strip()
+            args = match['args'].strip()
             # allow space and comma to seperate
             args = args.replace(',', ' ').split(' ')
         return set(args)
@@ -190,10 +190,10 @@ class InstallChecker(object):
 
         all_done = True
         for arch in architectures:
-            pra = '{}/{}/{}'.format(project, repository, arch)
+            pra = f'{project}/{repository}/{arch}'
             buildid = self.buildid(project, repository, arch)
             if not buildid:
-                self.logger.error('No build ID in {}'.format(pra))
+                self.logger.error(f'No build ID in {pra}')
                 return False
             buildids[arch] = buildid
             url = self.report_url(project, repository, arch, buildid)
@@ -201,11 +201,11 @@ class InstallChecker(object):
                 root = ET.parse(osc.core.http_GET(url)).getroot()
                 check = root.find('check[@name="installcheck"]/state')
                 if check is not None and check.text != 'pending':
-                    self.logger.info('{} already "{}", ignoring'.format(pra, check.text))
+                    self.logger.info(f'{pra} already "{check.text}", ignoring')
                 else:
                     all_done = False
             except HTTPError:
-                self.logger.info('{} has no status report'.format(pra))
+                self.logger.info(f'{pra} has no status report')
                 all_done = False
 
         if all_done and not force:
@@ -218,7 +218,7 @@ class InstallChecker(object):
         to_ignore = self.packages_to_ignore(project)
         status = api.project_status(project)
         if status is None:
-            self.logger.error('no project status for {}'.format(project))
+            self.logger.error(f'no project status for {project}')
             return False
 
         # collect packages to be deleted
@@ -243,14 +243,7 @@ class InstallChecker(object):
 
                     directories.append(mirror(self.api.apiurl, pair_project, pair_repository, arch))
 
-            if not api.is_adi_project(project):
-                # For "leaky" ring packages in letter stagings, where the
-                # repository setup does not include the target project, that are
-                # not intended to to have all run-time dependencies satisfied.
-                whitelist = self.ring_whitelist
-            else:
-                whitelist = set()
-
+            whitelist = self.ring_whitelist if not api.is_adi_project(project) else set()
             whitelist |= to_ignore
             ignore_conflicts = self.ignore_conflicts | to_ignore
 
@@ -282,9 +275,9 @@ class InstallChecker(object):
         if result:
             self.report_state('success', self.gocd_url(), project, repository, buildids)
         else:
-            result_comment.insert(0, 'Generated from {}\n'.format(self.gocd_url()))
+            result_comment.insert(0, f'Generated from {self.gocd_url()}\n')
             self.report_state('failure', self.upload_failure(project, result_comment), project, repository, buildids)
-            self.logger.warning('Not accepting {}'.format(project))
+            self.logger.warning(f'Not accepting {project}')
             return False
 
         return result
@@ -295,7 +288,7 @@ class InstallChecker(object):
         osc.core.http_PUT(url, data='\n'.join(comment))
 
         url = self.api.apiurl.replace('api.', 'build.')
-        return '{}/package/view_file/home:repo-checker/reports/{}'.format(url, project)
+        return f'{url}/package/view_file/home:repo-checker/reports/{project}'
 
     def report_state(self, state, report_url, project, repository, buildids):
         architectures = self.target_archs(project, repository)
@@ -307,19 +300,13 @@ class InstallChecker(object):
             # placeholder :)
             return 'http://stephan.kulow.org/'
         report_url = os.environ.get('GO_SERVER_URL').replace(':8154', '')
-        return report_url + '/tab/build/detail/{}/{}/{}/{}/{}#tab-console'.format(os.environ.get('GO_PIPELINE_NAME'),
-                                                                                  os.environ.get('GO_PIPELINE_COUNTER'),
-                                                                                  os.environ.get('GO_STAGE_NAME'),
-                                                                                  os.environ.get('GO_STAGE_COUNTER'),
-                                                                                  os.environ.get('GO_JOB_NAME'))
+        return f"{report_url}/tab/build/detail/{os.environ.get('GO_PIPELINE_NAME')}/{os.environ.get('GO_PIPELINE_COUNTER')}/{os.environ.get('GO_STAGE_NAME')}/{os.environ.get('GO_STAGE_COUNTER')}/{os.environ.get('GO_JOB_NAME')}#tab-console"
 
     def buildid(self, project, repository, architecture):
         url = self.api.makeurl(['build', project, repository, architecture], {'view': 'status'})
         root = ET.parse(osc.core.http_GET(url)).getroot()
         buildid = root.find('buildid')
-        if buildid is None:
-            return False
-        return buildid.text
+        return False if buildid is None else buildid.text
 
     def report_url(self, project, repository, architecture, buildid):
         return self.api.makeurl(['status_reports', 'built', project,
@@ -332,7 +319,7 @@ class InstallChecker(object):
         try:
             osc.core.http_POST(url, data=xml)
         except HTTPError:
-            print('failed to post status to ' + url)
+            print(f'failed to post status to {url}')
             sys.exit(1)
 
     def check_xml(self, url, state, name):
@@ -357,10 +344,10 @@ class InstallChecker(object):
         return sorted(archs, reverse=True)
 
     def install_check(self, directories, arch, whitelist, ignored_conflicts):
-        self.logger.info('install check: start (whitelist:{})'.format(','.join(whitelist)))
+        self.logger.info(f"install check: start (whitelist:{','.join(whitelist)})")
         parts = installcheck(directories, arch, whitelist, ignored_conflicts)
         if len(parts):
-            header = '### [install check & file conflicts for {}]'.format(arch)
+            header = f'### [install check & file conflicts for {arch}]'
             return CheckResult(False, header + '\n\n' + ('\n' + ('-' * 80) + '\n\n').join(parts))
 
         self.logger.info('install check: passed')
@@ -369,25 +356,23 @@ class InstallChecker(object):
     def calculate_allowed_cycles(self):
         self.allowed_cycles = []
         if self.cycle_packages:
-            for comma_list in self.cycle_packages.split(';'):
-                self.allowed_cycles.append(comma_list.split(','))
+            self.allowed_cycles.extend(
+                comma_list.split(',')
+                for comma_list in self.cycle_packages.split(';')
+            )
 
     def cycle_check(self, project, repository, arch):
-        self.logger.info('cycle check: start %s/%s/%s' % (project, repository, arch))
+        self.logger.info(f'cycle check: start {project}/{repository}/{arch}')
         comment = []
 
         depinfo = builddepinfo(self.api.apiurl, project, repository, arch, order=False)
         for cycle in depinfo.findall('cycle'):
             for package in cycle.findall('package'):
                 package = package.text
-                allowed = False
-                for acycle in self.allowed_cycles:
-                    if package in acycle:
-                        allowed = True
-                        break
+                allowed = any(package in acycle for acycle in self.allowed_cycles)
                 if not allowed:
                     cycled = [p.text for p in cycle.findall('package')]
-                    comment.append('Package {} appears in cycle {}'.format(package, '/'.join(cycled)))
+                    comment.append(f"Package {package} appears in cycle {'/'.join(cycled)}")
 
         if len(comment):
             # New cycles, post comment.

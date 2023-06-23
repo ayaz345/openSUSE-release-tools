@@ -64,23 +64,20 @@ def bug_owner(apiurl, package, entity='person'):
     url = osc.core.makeurl(apiurl, ('search', 'owner'), query=query)
     root = ET.parse(osc.core.http_GET(url)).getroot()
 
-    bugowner = root.find('.//{}[@role="bugowner"]'.format(entity))
+    bugowner = root.find(f'.//{entity}[@role="bugowner"]')
     if bugowner is not None:
         return entity_email(apiurl, bugowner.get('name'), entity)
-    maintainer = root.find('.//{}[@role="maintainer"]'.format(entity))
+    maintainer = root.find(f'.//{entity}[@role="maintainer"]')
     if maintainer is not None:
         return entity_email(apiurl, maintainer.get('name'), entity)
-    if entity == 'person':
-        return bug_owner(apiurl, package, 'group')
-
-    return None
+    return bug_owner(apiurl, package, 'group') if entity == 'person' else None
 
 
 def bug_meta_get(bugzilla_api, bug_id):
     try:
         bug = bugzilla_api.getbug(bug_id)
     except Fault as e:
-        print('bug_meta_get(): ' + str(e))
+        print(f'bug_meta_get(): {str(e)}')
         return None
     return bug.component
 
@@ -90,8 +87,7 @@ def bug_meta(bugzilla_api, defaults, trackers, issues):
     prefix = trackers['bnc'][:3]
     for issue in issues:
         if issue.startswith(prefix):
-            component = bug_meta_get(bugzilla_api, issue[4:])
-            if component:
+            if component := bug_meta_get(bugzilla_api, issue[4:]):
                 return (defaults[0], component, defaults[2])
 
     return defaults
@@ -108,7 +104,10 @@ def bugzilla_init(apiurl):
 def prompt_continue(change_count):
     allowed = ['y', 'b', 's', 'n', '']
     if change_count > 0:
-        print('File bug for {} issues and continue? [y/b/s/n/?] (y): '.format(change_count), end='')
+        print(
+            f'File bug for {change_count} issues and continue? [y/b/s/n/?] (y): ',
+            end='',
+        )
     else:
         print('No changes for which to create bug, continue? [y/b/s/n/?] (y): ', end='')
 
@@ -120,7 +119,7 @@ def prompt_continue(change_count):
             response = 'y'
         return response
     else:
-        print('Invalid response: {}'.format(response))
+        print(f'Invalid response: {response}')
 
     return prompt_continue(change_count)
 
@@ -128,7 +127,7 @@ def prompt_continue(change_count):
 def prompt_interactive(changes, project, package):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yml') as temp:
         temp.write(yaml.safe_dump(changes, default_flow_style=False, default_style="'") + '\n')
-        temp.write('# {}/{}\n'.format(project, package))
+        temp.write(f'# {project}/{package}\n')
         temp.write('# comment or remove lines to whitelist issues')
         temp.flush()
 
@@ -145,23 +144,23 @@ def prompt_interactive(changes, project, package):
 
 
 def issue_found(package, label, db):
-    return not (package not in db or db[package] is None or label not in db[package])
+    return package in db and db[package] is not None and label in db[package]
 
 
 def issue_trackers(apiurl):
     url = osc.core.makeurl(apiurl, ['issue_trackers'])
     root = ET.parse(osc.core.http_GET(url)).getroot()
-    trackers = {}
-    for tracker in root.findall('issue-tracker'):
-        trackers[tracker.find('name').text] = tracker.find('label').text
-    return trackers
+    return {
+        tracker.find('name').text: tracker.find('label').text
+        for tracker in root.findall('issue-tracker')
+    }
 
 
 def issue_normalize(trackers, tracker, name):
     if tracker in trackers:
         return trackers[tracker].replace('@@@', name)
 
-    print('WARNING: ignoring unknown tracker {} for {}'.format(tracker, name))
+    print(f'WARNING: ignoring unknown tracker {tracker} for {name}')
     return None
 
 
@@ -227,10 +226,10 @@ def print_stats(db):
                 reported += 1
             else:
                 whitelisted += 1
-    print('Packages: {}'.format(len(db)))
-    print('Bugs: {}'.format(len(set(bug_ids))))
-    print('Reported: {}'.format(reported))
-    print('Whitelisted: {}'.format(whitelisted))
+    print(f'Packages: {len(db)}')
+    print(f'Bugs: {len(set(bug_ids))}')
+    print(f'Reported: {reported}')
+    print(f'Whitelisted: {whitelisted}')
 
 
 def main(args):
@@ -252,14 +251,14 @@ def main(args):
     git_repo_url = 'git@github.com:jberry-suse/openSUSE-release-tools-issue-db.git'
     git_message = 'Sync issue-diff.py changes.'
     db_dir = sync(args.cache_dir, git_repo_url, git_message)
-    db_file = os.path.join(db_dir, '{}.yml'.format(args.project))
+    db_file = os.path.join(db_dir, f'{args.project}.yml')
 
     if os.path.exists(db_file):
         db = yaml.safe_load(open(db_file).read())
         if db is None:
             db = {}
         else:
-            print('Loaded db file: {}'.format(db_file))
+            print(f'Loaded db file: {db_file}')
     else:
         db = {}
 
@@ -267,7 +266,7 @@ def main(args):
         print_stats(db)
         return
 
-    print('Comparing {} against {}'.format(args.project, args.factory))
+    print(f'Comparing {args.project} against {args.factory}')
 
     bugzilla_api = bugzilla_init(args.bugzilla_apiurl)
     bugzilla_defaults = (args.bugzilla_product, args.bugzilla_component, args.bugzilla_version)
@@ -280,9 +279,9 @@ def main(args):
     shuffle(list(packages))
     for index, package in enumerate(packages, start=1):
         if index % 50 == 0:
-            print('Checked {} of {}'.format(index, len(packages)))
+            print(f'Checked {index} of {len(packages)}')
         if package in db and db[package] == 'whitelist':
-            print('Skipping package {}'.format(package))
+            print(f'Skipping package {package}')
             continue
 
         issues_project = issues_get(apiurl, args.project, package, trackers, db)
@@ -299,7 +298,7 @@ def main(args):
         if len(missing_from_factory) == 0:
             continue
 
-        print('{}: {} missing'.format(package, len(missing_from_factory)))
+        print(f'{package}: {len(missing_from_factory)} missing')
 
         # Generate summaries for issues missing from factory.
         changes = {}
@@ -325,7 +324,7 @@ def main(args):
                         issue = issue.replace('bsc', 'bug')
                         summary = summary.format(
                             label=issue, url=info['url'], owner=info['owner'], summary=info['summary'])
-                    issues.append('- ' + summary)
+                    issues.append(f'- {summary}')
                     if info['owner'] is not None:
                         cc.append(info['owner'])
 
@@ -337,7 +336,7 @@ def main(args):
             continue
 
         # File a bug if not all issues whitelisted.
-        if len(issues) > 0:
+        if issues:
             summary = BUG_SUMMARY.format(project=args.project, factory=args.factory, package=package)
             message = BUG_TEMPLATE.format(
                 message_start=MESSAGE_START.format(
@@ -345,7 +344,7 @@ def main(args):
                 issues='\n'.join(issues))
             if len(message) > 65535:
                 # Truncate messages longer than bugzilla limit.
-                message = message[:65535 - 3] + '...'
+                message = f'{message[:65535 - 3]}...'
 
             # Determine bugzilla meta information to use when creating bug.
             meta = bug_meta(bugzilla_api, bugzilla_defaults, trackers, changes.keys())
@@ -361,12 +360,12 @@ def main(args):
                     break
                 except Fault as e:
                     if 'There is no component named' in e.faultString:
-                        print('Invalid component {}, fallback to default'.format(meta[1]))
+                        print(f'Invalid component {meta[1]}, fallback to default')
                         meta = (meta[0], bugzilla_defaults[1], meta[2])
                     elif 'is not a valid username' in e.faultString:
                         username = e.faultString.split(' ', 3)[2]
                         cc.remove(username)
-                        print('Removed invalid username {}'.format(username))
+                        print(f'Removed invalid username {username}')
                     else:
                         raise e
                 tries += 1
@@ -389,9 +388,11 @@ def main(args):
             yaml.safe_dump(db, outfile, default_flow_style=False, default_style="'")
 
         if notified > 0:
-            print('{}: {} notified in bug {}, {} whitelisted'.format(package, notified, bug_id, whitelisted))
+            print(
+                f'{package}: {notified} notified in bug {bug_id}, {whitelisted} whitelisted'
+            )
         else:
-            print('{}: {} whitelisted'.format(package, whitelisted))
+            print(f'{package}: {whitelisted} whitelisted')
 
         if response == 'b':
             break

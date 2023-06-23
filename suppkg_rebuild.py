@@ -48,9 +48,13 @@ class StagingHelper(object):
 
     def get_project_binarylist(self, project, repository, arch):
         query = {'view': 'binaryversions'}
-        root = ET.parse(http_GET(makeurl(self.apiurl, ['build', project, repository, arch],
-                                         query=query))).getroot()
-        return root
+        return ET.parse(
+            http_GET(
+                makeurl(
+                    self.apiurl, ['build', project, repository, arch], query=query
+                )
+            )
+        ).getroot()
 
     def process_project_binarylist(self, project, repository, arch):
         prj_binarylist = self.get_project_binarylist(project, repository, arch)
@@ -60,14 +64,14 @@ class StagingHelper(object):
                 result = re.match(r'(.*)-([^-]*)-([^-]*)\.([^-\.]+)\.rpm', binary.attrib['name'])
                 if not result:
                     continue
-                bname = result.group(1)
+                bname = result[1]
                 if bname.endswith('-debuginfo') or bname.endswith('-debuginfo-32bit'):
                     continue
                 if bname.endswith('-debugsource'):
                     continue
                 if bname.startswith('::import::'):
                     continue
-                if result.group(4) == 'src':
+                if result[4] == 'src':
                     continue
                 files[bname] = package.attrib['package'].split(':', 1)[0]
 
@@ -85,10 +89,11 @@ class StagingHelper(object):
                 if e.code == 404:
                     continue
                 raise
-            for en in root.findall('entry'):
-                if en.attrib['name'].endswith('.spec'):
-                    expanded_packages.append(en.attrib['name'][:-5])
-
+            expanded_packages.extend(
+                en.attrib['name'][:-5]
+                for en in root.findall('entry')
+                if en.attrib['name'].endswith('.spec')
+            )
         return expanded_packages
 
     def crawl(self):
@@ -98,10 +103,13 @@ class StagingHelper(object):
             print("There is no support_pkg_rebuild file!")
             return
 
-        logging.info('Gathering support package list from %s' % self.project)
+        logging.info(f'Gathering support package list from {self.project}')
         support_pkgs = self.get_support_package_list(self.project, 'standard')
         files = self.process_project_binarylist(self.project, 'standard', 'x86_64')
-        staging_projects = ["%s:%s" % (self.api.cstaging, p) for p in self.api.get_staging_projects_short()]
+        staging_projects = [
+            f"{self.api.cstaging}:{p}"
+            for p in self.api.get_staging_projects_short()
+        ]
         cand_sources = defaultdict(list)
         for stg in staging_projects:
             status = self.api.project_status(stg, status=False)
@@ -130,7 +138,7 @@ class StagingHelper(object):
                 stg.find('rebuild').text = 'needed'
                 new_suppkg_list = ','.join(cand_sources[stgname])
                 stg.find('supportpkg').text = new_suppkg_list
-            elif len(cand_sources[stgname]) and rebuild != 'unknown':
+            elif len(cand_sources[stgname]):
                 for cand in cand_sources[stgname]:
                     if cand not in suppkgs:
                         need_rebuild = True
@@ -138,7 +146,7 @@ class StagingHelper(object):
                         break
                 new_suppkg_list = ','.join(cand_sources[stgname])
                 stg.find('supportpkg').text = new_suppkg_list
-            elif not len(cand_sources[stgname]):
+            else:
                 stg.find('rebuild').text = 'unneeded'
                 stg.find('supportpkg').text = ''
 
@@ -146,7 +154,7 @@ class StagingHelper(object):
                 need_rebuild = True
 
             if need_rebuild and not self.api.is_repo_dirty(stgname, 'standard'):
-                logging.info('Rebuild %s' % stgname)
+                logging.info(f'Rebuild {stgname}')
                 osc.core.rebuild(self.apiurl, stgname, None, None, None)
                 stg.find('rebuild').text = 'unneeded'
 
@@ -173,9 +181,14 @@ if __name__ == '__main__':
     parser.add_argument('-A', '--apiurl', metavar='URL', help='API URL')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='print info useful for debuging')
-    parser.add_argument('-p', '--project', dest='project', metavar='PROJECT',
-                        help='deafult project (default: %s)' % OPENSUSE,
-                        default=OPENSUSE)
+    parser.add_argument(
+        '-p',
+        '--project',
+        dest='project',
+        metavar='PROJECT',
+        help=f'deafult project (default: {OPENSUSE})',
+        default=OPENSUSE,
+    )
 
     args = parser.parse_args()
 

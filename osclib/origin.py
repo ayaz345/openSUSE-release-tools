@@ -77,11 +77,10 @@ OriginInfo.__str__ = origin_info_str
 
 @memoize(session=True)
 def config_load(apiurl, project):
-    config = attribute_value_load(apiurl, project, 'OriginConfig')
-    if not config:
+    if config := attribute_value_load(apiurl, project, 'OriginConfig'):
+        return config_resolve(apiurl, project, yaml.safe_load(config))
+    else:
         return {}
-
-    return config_resolve(apiurl, project, yaml.safe_load(config))
 
 
 def config_origin_generator(origins, apiurl=None, project=None, package=None, skip_workarounds=False):
@@ -91,7 +90,12 @@ def config_origin_generator(origins, apiurl=None, project=None, package=None, sk
             if skip_workarounds and is_workaround:
                 break
 
-            if (origin == '<devel>' or origin == '<devel>~') and apiurl and project and package:
+            if (
+                origin in ['<devel>', '<devel>~']
+                and apiurl
+                and project
+                and package
+            ):
                 devel_project, devel_package = origin_devel_project(apiurl, project, package)
                 if not devel_project:
                     break
@@ -164,7 +168,7 @@ def config_resolve_variables(config, config_project):
 
 
 def config_resolve_variable(value, config_project, key='config'):
-    prefix = '<{}:'.format(key)
+    prefix = f'<{key}:'
     end = value.rfind('>')
     if not value.startswith(prefix) or end == -1:
         return value
@@ -176,11 +180,12 @@ def config_resolve_variable(value, config_project, key='config'):
 
 
 def config_origin_list(config, apiurl=None, project=None, package=None, skip_workarounds=False):
-    origin_list = []
-    for origin, values in config_origin_generator(
-            config['origins'], apiurl, project, package, skip_workarounds):
-        origin_list.append(origin)
-    return origin_list
+    return [
+        origin
+        for origin, values in config_origin_generator(
+            config['origins'], apiurl, project, package, skip_workarounds
+        )
+    ]
 
 
 def config_resolve_create_workarounds(config, values_workaround, origins_skip):
@@ -191,7 +196,7 @@ def config_resolve_create_workarounds(config, values_workaround, origins_skip):
         if origin.startswith('*') or origin.endswith('~'):
             continue
 
-        origin_new = origin + '~'
+        origin_new = f'{origin}~'
         if origin_new in origins_skip:
             continue
 
@@ -227,15 +232,11 @@ def origin_workaround_check(origin):
 
 
 def origin_workaround_ensure(origin):
-    if not origin_workaround_check(origin):
-        return origin + '~'
-    return origin
+    return f'{origin}~' if not origin_workaround_check(origin) else origin
 
 
 def origin_workaround_strip(origin):
-    if origin_workaround_check(origin):
-        return origin[:-1]
-    return origin
+    return origin[:-1] if origin_workaround_check(origin) else origin
 
 
 @memoize(session=True)
@@ -246,11 +247,12 @@ def origin_find(apiurl, target_project, package, source_hash=None, current=False
     if not source_hash:
         current = True
         source_hash = package_source_hash(apiurl, target_project, package)
-        if not source_hash:
-            return None
+    if not source_hash:
+        return None
 
-    logging.debug('origin_find: {}/{} with source {} ({}, {}, {})'.format(
-        target_project, package, source_hash, current, pending_allow, fallback))
+    logging.debug(
+        f'origin_find: {target_project}/{package} with source {source_hash} ({current}, {pending_allow}, {fallback})'
+    )
 
     for origin, values in config_origin_generator(config['origins'], apiurl, target_project, package, True):
         if project_source_contain(apiurl, origin, package, source_hash):
@@ -318,15 +320,12 @@ def origin_find_fallback(apiurl, target_project, package, source_hash, user):
     # the specified user, load comment as annotation, and extract origin.
     request_actions = request_action_list_source(apiurl, target_project, package, states=['accepted'])
     for request, action in sorted(request_actions, key=lambda i: i[0].reqid, reverse=True):
-        annotation = origin_annotation_load(request, action, user)
-        if not annotation:
-            continue
+        if annotation := origin_annotation_load(request, action, user):
+            return OriginInfo(annotation.get('origin'), False)
 
-        return OriginInfo(annotation.get('origin'), False)
-
-    # Fallback to searching workaround project.
-    fallback_workaround = config_load(apiurl, target_project).get('fallback-workaround')
-    if fallback_workaround:
+    if fallback_workaround := config_load(apiurl, target_project).get(
+        'fallback-workaround'
+    ):
         if project_source_contain(apiurl, fallback_workaround['project'], package, source_hash):
             return OriginInfo(fallback_workaround['origin'], False)
 
@@ -338,9 +337,14 @@ def origin_find_fallback(apiurl, target_project, package, source_hash, user):
             first = False
             continue
 
-        origin_info = origin_find(
-            apiurl, target_project, package, source_hash_consider, pending_allow=False, fallback=False)
-        if origin_info:
+        if origin_info := origin_find(
+            apiurl,
+            target_project,
+            package,
+            source_hash_consider,
+            pending_allow=False,
+            fallback=False,
+        ):
             return origin_info
 
     return None
@@ -362,10 +366,7 @@ def origin_annotation_dump(origin_info_new, origin_info_old, override=False, raw
         data['origin'] = origin_workaround_ensure(data['origin'])
         data['comment'] = override
 
-    if raw:
-        return data
-
-    return yaml.dump(data, default_flow_style=False)
+    return data if raw else yaml.dump(data, default_flow_style=False)
 
 
 def origin_annotation_load(request, action, user):
@@ -390,21 +391,22 @@ def origin_annotation_load(request, action, user):
 
     if len(request.actions) > 1:
         action_key = request_action_key(action)
-        if action_key not in annotation:
-            return False
-
-        return annotation[action_key]
-
+        return False if action_key not in annotation else annotation[action_key]
     return annotation
 
 
 def origin_find_highest(apiurl, project, package):
     config = config_load(apiurl, project)
-    for origin, values in config_origin_generator(config['origins'], apiurl, project, package, True):
-        if entity_exists(apiurl, origin, package):
-            return origin
-
-    return None
+    return next(
+        (
+            origin
+            for origin, values in config_origin_generator(
+                config['origins'], apiurl, project, package, True
+            )
+            if entity_exists(apiurl, origin, package)
+        ),
+        None,
+    )
 
 
 def policy_evaluate(apiurl, project, package,
@@ -433,18 +435,23 @@ def policy_evaluate(apiurl, project, package,
 @memoize(session=True)
 def policy_get(apiurl, project, package, origin):
     config = config_load(apiurl, project)
-    for key, values in config_origin_generator(config['origins'], apiurl, project, package):
-        if key == origin:
-            return policy_get_preprocess(apiurl, origin, values)
-
-    return None
+    return next(
+        (
+            policy_get_preprocess(apiurl, origin, values)
+            for key, values in config_origin_generator(
+                config['origins'], apiurl, project, package
+            )
+            if key == origin
+        ),
+        None,
+    )
 
 
 def policy_get_preprocess(apiurl, origin, policy):
     project = origin.rstrip('~')
     config_project = Config.get(apiurl, project)
     for suffix in ('', '_update'):
-        key = 'pending_submission_allowed_reviews{}'.format(suffix)
+        key = f'pending_submission_allowed_reviews{suffix}'
         policy[key] = list(filter(None, [
             config_resolve_variable(v, config_project, 'config_source')
             for v in policy[key]]))
@@ -519,28 +526,29 @@ def policy_input_evaluate(policy, inputs):
 
         if not inputs['from_highest_priority']:
             result.reviews['fallback'] = 'Not from the highest priority origin which provides the package.'
-    else:
-        if inputs['origin_change']:
-            if inputs['higher_priority']:
-                if not inputs['same_family'] and inputs['direction'] != 'forward':
-                    result.reviews['fallback'] = 'Changing to a higher priority origin, ' \
-                        'but from another family and {} direction.'.format(inputs['direction'])
-                elif not inputs['same_family']:
-                    result.reviews['fallback'] = 'Changing to a higher priority origin, but from another family.'
-                elif inputs['direction'] != 'forward':
-                    result.reviews['fallback'] = \
-                        'Changing to a higher priority origin, but {} direction.'.format(inputs['direction'])
-            else:
-                result.reviews['fallback'] = 'Changing to a lower priority origin.'
+    elif inputs['origin_change']:
+        if inputs['higher_priority']:
+            if not inputs['same_family'] and inputs['direction'] != 'forward':
+                result.reviews[
+                    'fallback'
+                ] = f"Changing to a higher priority origin, but from another family and {inputs['direction']} direction."
+            elif not inputs['same_family']:
+                result.reviews['fallback'] = 'Changing to a higher priority origin, but from another family.'
+            elif inputs['direction'] != 'forward':
+                result.reviews[
+                    'fallback'
+                ] = f"Changing to a higher priority origin, but {inputs['direction']} direction."
         else:
-            if inputs['direction'] == 'none':
-                return PolicyResult(False, False, {}, ['Identical source.'])
+            result.reviews['fallback'] = 'Changing to a lower priority origin.'
+    else:
+        if inputs['direction'] == 'none':
+            return PolicyResult(False, False, {}, ['Identical source.'])
 
-            if inputs['direction'] == 'forward':
-                if not policy['automatic_updates']:
-                    result.reviews['fallback'] = 'Forward direction, but automatic updates not allowed.'
-            else:
-                result.reviews['fallback'] = '{} direction.'.format(inputs['direction'])
+        if inputs['direction'] == 'forward':
+            if not policy['automatic_updates']:
+                result.reviews['fallback'] = 'Forward direction, but automatic updates not allowed.'
+        else:
+            result.reviews['fallback'] = f"{inputs['direction']} direction."
 
     if inputs['pending_submission'] is not False:
         reviews_not_allowed = policy_input_evaluate_reviews_not_allowed(policy, inputs)
@@ -548,9 +556,9 @@ def policy_input_evaluate(policy, inputs):
         result = PolicyResult(wait, True, result.reviews, result.comments)
 
         if wait:
-            result.comments.append('Waiting on {} of {}.'.format(
-                'reviews' if policy['pending_submission_allow'] else 'acceptance',
-                inputs['pending_submission'].identifier))
+            result.comments.append(
+                f"Waiting on {'reviews' if policy['pending_submission_allow'] else 'acceptance'} of {inputs['pending_submission'].identifier}."
+            )
 
     if policy['maintainer_review_always']:
         # Placed last to override initial maintainer approval message.
@@ -757,9 +765,15 @@ def origin_update(apiurl, target_project, package):
     frequency = int(mode['frequency'])
 
     if policy['pending_submission_allow']:
-        request_id = origin_update_pending(
-            apiurl, origin_info.project, package, target_project, policy, supersede, frequency)
-        if request_id:
+        if request_id := origin_update_pending(
+            apiurl,
+            origin_info.project,
+            package,
+            target_project,
+            policy,
+            supersede,
+            frequency,
+        ):
             return request_id
 
     message = 'Newer source available from package origin.'
@@ -778,7 +792,7 @@ def origin_update_pending(apiurl, origin_project, package, target_project, polic
             continue
 
         identifier = request_remote_identifier(apiurl, apiurl_remote, request.reqid)
-        message = 'Newer pending source available from package origin. See {}.'.format(identifier)
+        message = f'Newer pending source available from package origin. See {identifier}.'
         src_project = project_remote_prefixed(apiurl, apiurl_remote, action.src_project)
         return request_create_submit(apiurl, src_project, action.src_package,
                                      target_project, package, message=message, revision=action.src_rev,
@@ -790,7 +804,7 @@ def origin_update_pending(apiurl, origin_project, package, target_project, polic
 def origin_update_mode(apiurl, target_project, package, policy, origin_project):
     values = {}
     for key in ('skip', 'supersede', 'delay', 'frequency'):
-        attribute = 'OriginUpdate{}'.format(key.capitalize())
+        attribute = f'OriginUpdate{key.capitalize()}'
         for project in (origin_project, target_project):
             for package_attribute in (package, None):
                 value = attribute_value_load(apiurl, project, attribute, package=package_attribute)
@@ -814,25 +828,21 @@ def origin_update_mode(apiurl, target_project, package, policy, origin_project):
 
 def origin_update_initial_blacklisted(apiurl, target_project, package):
     patterns = origin_update_initial_blacklisted_patterns(apiurl, target_project)
-    for pattern in patterns:
-        if pattern.match(package):
-            return True
-
-    return False
+    return any(pattern.match(package) for pattern in patterns)
 
 
 @memoize(session=True)
 def origin_update_initial_blacklisted_patterns(apiurl, target_project):
     patterns = []
 
-    blacklist = attribute_value_load(apiurl, target_project, 'OriginUpdateInitialBlacklist')
-    if blacklist:
-        for entry in blacklist.strip().splitlines():
-            if not entry:
-                continue
-
-            patterns.append(re.compile(entry, re.IGNORECASE))
-
+    if blacklist := attribute_value_load(
+        apiurl, target_project, 'OriginUpdateInitialBlacklist'
+    ):
+        patterns.extend(
+            re.compile(entry, re.IGNORECASE)
+            for entry in blacklist.strip().splitlines()
+            if entry
+        )
     return patterns
 
 
@@ -847,15 +857,14 @@ def origin_updatable(apiurl):
     ], locked=False)
 
     for project in projects:
-        updatable = False
-
         # Look for at least one origin that allows automatic updates.
         config = config_load(apiurl, project)
-        for origin, values in config_origin_generator(config['origins'], skip_workarounds=True):
-            if values['automatic_updates']:
-                updatable = True
-                break
-
+        updatable = any(
+            values['automatic_updates']
+            for origin, values in config_origin_generator(
+                config['origins'], skip_workarounds=True
+            )
+        )
         if not updatable:
             projects.remove(project)
 
@@ -887,14 +896,14 @@ def origin_updatable_map(apiurl, pending=None, include_self=False):
 
 
 def origin_updatable_initial(apiurl, target_project):
-    origins = []
-
     config = config_load(apiurl, target_project)
-    for origin, values in config_origin_generator(config['origins'], skip_workarounds=True):
-        if origin != '<devel>' and values['automatic_updates_initial']:
-            origins.append(origin)
-
-    return origins
+    return [
+        origin
+        for origin, values in config_origin_generator(
+            config['origins'], skip_workarounds=True
+        )
+        if origin != '<devel>' and values['automatic_updates_initial']
+    ]
 
 
 class devel_project_simulate_exception(Exception):
@@ -922,8 +931,8 @@ class devel_project_simulate:
     def __enter__(self):
         if devel_project_simulate.lock:
             raise devel_project_simulate_exception(
-                'Devel project simulation lock already aquired for {}:{}/{}'.format(
-                    self.apiurl, self.target_project, self.target_package))
+                f'Devel project simulation lock already aquired for {self.apiurl}:{self.target_project}/{self.target_package}'
+            )
 
         devel_project_simulate.lock = self
 

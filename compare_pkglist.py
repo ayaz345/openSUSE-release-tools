@@ -37,9 +37,7 @@ class CompareList(object):
         query = {'expand': 1}
         root = ET.parse(http_GET(makeurl(self.apiurl, ['source', project],
                                  query=query))).getroot()
-        packages = [i.get('name') for i in root.findall('entry')]
-
-        return packages
+        return [i.get('name') for i in root.findall('entry')]
 
     def item_exists(self, project, package=None):
         """
@@ -56,17 +54,12 @@ class CompareList(object):
         return True
 
     def removed_pkglist(self, project):
-        if project.startswith('SUSE:'):
-            apiurl = 'https://api.suse.de'
-        else:
-            apiurl = self.apiurl
-        query = "match=state/@name='accepted'+and+(action/target/@project='{}'+and+action/@type='delete')".format(project)
+        apiurl = 'https://api.suse.de' if project.startswith('SUSE:') else self.apiurl
+        query = f"match=state/@name='accepted'+and+(action/target/@project='{project}'+and+action/@type='delete')"
         url = makeurl(apiurl, ['search', 'request'], query)
         f = http_GET(url)
         root = ET.parse(f).getroot()
-        packages = [t.get('package') for t in root.findall('./request/action/target')]
-
-        return packages
+        return [t.get('package') for t in root.findall('./request/action/target')]
 
     def is_linked_package(self, project, package):
         query = {'withlinked': 1}
@@ -76,13 +69,14 @@ class CompareList(object):
         if links is None:
             return False
 
-        for linked in links:
-            if linked.get('project') == project and linked.get('package').startswith("%s." % package):
-                return False
-        return True
+        return not any(
+            linked.get('project') == project
+            and linked.get('package').startswith(f"{package}.")
+            for linked in links
+        )
 
     def check_diff(self, package, old_prj, new_prj):
-        logging.debug('checking %s ...' % package)
+        logging.debug(f'checking {package} ...')
         query = {'cmd': 'diff',
                  'view': 'xml',
                  'oproject': old_prj,
@@ -90,27 +84,26 @@ class CompareList(object):
         u = makeurl(self.apiurl, ['source', new_prj, package], query=query)
         root = ET.parse(http_POST(u)).getroot()
         old_srcmd5 = root.findall('old')[0].get('srcmd5')
-        logging.debug('%s old srcmd5 %s in %s' % (package, old_srcmd5, old_prj))
+        logging.debug(f'{package} old srcmd5 {old_srcmd5} in {old_prj}')
         new_srcmd5 = root.findall('new')[0].get('srcmd5')
-        logging.debug('%s new srcmd5 %s in %s' % (package, new_srcmd5, new_prj))
+        logging.debug(f'{package} new srcmd5 {new_srcmd5} in {new_prj}')
         # Compare srcmd5
         if old_srcmd5 != new_srcmd5:
-            # check if it has diff element
-            diffs = root.findall('files/file/diff')
-            if diffs:
+            if diffs := root.findall('files/file/diff'):
                 return ET.tostring(root)
         return False
 
     def submit_new_package(self, source, target, package, msg=None):
-        req = osc.core.get_request_list(self.apiurl, target, package, req_state=('new', 'review', 'declined'))
-        if req:
-            print("There is a request to %s / %s already, skip!" % (target, package))
+        if req := osc.core.get_request_list(
+            self.apiurl, target, package, req_state=('new', 'review', 'declined')
+        ):
+            print(f"There is a request to {target} / {package} already, skip!")
         else:
             if not msg:
                 msg = 'New package submitted by compare_pkglist'
             res = osc.core.create_submit_request(self.apiurl, source, package, target, package, message=msg)
             if res and res is not None:
-                print('Created request %s for %s' % (res, package))
+                print(f'Created request {res} for {package}')
                 return True
             else:
                 print('Error occurred when creating the submit request')
@@ -122,29 +115,26 @@ class CompareList(object):
             if (self.submitfrom and not self.submitto) or (self.submitto and not self.submitfrom):
                 print("** Please give both --submitfrom and --submitto parameter **")
                 return
-            if self.submitfrom and self.submitto:
+            if self.submitfrom:
                 if not self.item_exists(self.submitfrom):
-                    print("Project %s is not exist" % self.submitfrom)
+                    print(f"Project {self.submitfrom} is not exist")
                     return
                 if not self.item_exists(self.submitto):
-                    print("Project %s is not exist" % self.submitto)
+                    print(f"Project {self.submitto} is not exist")
                     return
 
         # get souce packages from target
-        print('Gathering the package list from %s' % self.old_prj)
+        print(f'Gathering the package list from {self.old_prj}')
         source = self.get_source_packages(self.old_prj)
-        print('Gathering the package list from %s' % self.new_prj)
+        print(f'Gathering the package list from {self.new_prj}')
         target = self.get_source_packages(self.new_prj)
         removed_packages = self.removed_pkglist(self.old_prj)
         if self.existin:
-            print('Gathering the package list from %s' % self.existin)
+            print(f'Gathering the package list from {self.existin}')
             existin_packages = self.get_source_packages(self.existin)
 
         if not self.removedonly:
-            if self.submitto:
-                dest = self.submitto
-            else:
-                dest = self.new_prj
+            dest = self.submitto if self.submitto else self.new_prj
             removed_pkgs_in_target = self.removed_pkglist(dest)
             submit_counter = 0
             for pkg in source:
@@ -173,24 +163,22 @@ class CompareList(object):
 
                         if self.submitfrom and self.submitto:
                             if not self.item_exists(self.submitfrom, pkg):
-                                print("%s not found in %s" % (pkg, self.submitfrom))
+                                print(f"{pkg} not found in {self.submitfrom}")
                                 continue
-                            msg = "Automated submission of a package from %s to %s" % (self.submitfrom, self.submitto)
+                            msg = f"Automated submission of a package from {self.submitfrom} to {self.submitto}"
                             if self.existin:
-                                msg += " that was included in %s" % (self.existin)
+                                msg += f" that was included in {self.existin}"
                             if self.submit_new_package(self.submitfrom, self.submitto, pkg, msg):
                                 submit_counter += 1
                         else:
-                            msg = "Automated submission of a package from %s that is new in %s" % (
-                                self.old_prj, self.new_prj)
+                            msg = f"Automated submission of a package from {self.old_prj} that is new in {self.new_prj}"
                             if self.submit_new_package(self.old_prj, self.new_prj, pkg, msg):
                                 submit_counter += 1
                 elif not self.newonly:
-                    diff = self.check_diff(pkg, self.old_prj, self.new_prj)
-                    if diff:
+                    if diff := self.check_diff(pkg, self.old_prj, self.new_prj):
                         print("Different source in {:<8} - {}".format(self.new_prj, pkg))
                         if self.verbose:
-                            print("=== Diff ===\n{}".format(diff))
+                            print(f"=== Diff ===\n{diff}")
 
         for pkg in removed_packages:
             if pkg in target:
@@ -213,12 +201,22 @@ if __name__ == '__main__':
     parser.add_argument('-A', '--apiurl', metavar='URL', help='API URL')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='print info useful for debuging')
-    parser.add_argument('-o', '--old', dest='old_prj', metavar='PROJECT',
-                        help='the old project where to compare (default: %s)' % SLE,
-                        default=SLE)
-    parser.add_argument('-n', '--new', dest='new_prj', metavar='PROJECT',
-                        help='the new project where to compare (default: %s)' % OPENSUSE,
-                        default=OPENSUSE)
+    parser.add_argument(
+        '-o',
+        '--old',
+        dest='old_prj',
+        metavar='PROJECT',
+        help=f'the old project where to compare (default: {SLE})',
+        default=SLE,
+    )
+    parser.add_argument(
+        '-n',
+        '--new',
+        dest='new_prj',
+        metavar='PROJECT',
+        help=f'the new project where to compare (default: {OPENSUSE})',
+        default=OPENSUSE,
+    )
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='show the diff')
     parser.add_argument('--newonly', action='store_true',

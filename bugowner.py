@@ -44,7 +44,7 @@ class BugownerTool(ToolBase.ToolBase):
         ToolBase.ToolBase.__init__(self)
         self.project = None
         self.reference_projects = None
-        self.package_metas = dict()
+        self.package_metas = {}
         self.release_managers = None
         self.persons = {}
 
@@ -55,7 +55,7 @@ class BugownerTool(ToolBase.ToolBase):
         url = self.makeurl(['person', name])
         root = ET.fromstring(self.cached_GET(url))
 
-        person = Person(*[root.find('./{}'.format(field)).text for field in Person._fields])
+        person = Person(*[root.find(f'./{field}').text for field in Person._fields])
         self.persons[name] = person
 
         return person
@@ -64,23 +64,21 @@ class BugownerTool(ToolBase.ToolBase):
         url = self.makeurl(['search', 'missing_owner'], {'project': self.project, 'filter': 'bugowner'})
         root = ET.fromstring(self.cached_GET(url))
 
-        missing = []
-        for node in root.findall('missing_owner'):
-            missing.append(node.get('package'))
-
-        return missing
+        return [node.get('package') for node in root.findall('missing_owner')]
 
     def find_owner(self, package, role='bugowner'):
         # XXX: not actually looking for package but binary
         # https://github.com/openSUSE/open-build-service/issues/4359
         url = self.makeurl(['search', 'owner'], {'binary': package})
         root = ET.fromstring(self.cached_GET(url))
-        ret = []
-        for node in root.findall('./owner/person[@role="{}"]'.format(role)):
-            ret.append(Owner('person', node.get('name')))
-        for node in root.findall('./owner/group[@role="{}"]'.format(role)):
-            ret.append(Owner('group', node.get('name')))
-
+        ret = [
+            Owner('person', node.get('name'))
+            for node in root.findall(f'./owner/person[@role="{role}"]')
+        ]
+        ret.extend(
+            Owner('group', node.get('name'))
+            for node in root.findall(f'./owner/group[@role="{role}"]')
+        )
         return ret
 
     def add_bugowner(self, package, owner):
@@ -88,7 +86,7 @@ class BugownerTool(ToolBase.ToolBase):
         root = ET.fromstring(self.cached_GET(url))
         idname = 'userid' if owner.kind == 'person' else 'groupid'
         # XXX: can't use 'and' here to filter for bugowner too
-        exists = root.findall('./{}[@{}="{}"]'.format(owner.kind, idname, owner.name))
+        exists = root.findall(f'./{owner.kind}[@{idname}="{owner.name}"]')
         for node in exists:
             if node.get('role') == 'bugowner':
                 logger.debug("%s/%s already has %s %s", self.project, package, owner.kind, owner.name)
@@ -113,7 +111,7 @@ class BugownerTool(ToolBase.ToolBase):
             user = srcrev['user']
 
         if self.is_release_manager(user):
-            logging.debug("%s was last touched by %s, ignored." % (package, user))
+            logging.debug(f"{package} was last touched by {user}, ignored.")
             return None
 
         return [Owner('person', user)]
@@ -137,9 +135,14 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
 
     def get_optparser(self):
         parser = ToolBase.CommandLineInterface.get_optparser(self)
-        parser.add_option('-p', '--project', dest='project', metavar='PROJECT',
-                          help='project to process (default: %s)' % FACTORY,
-                          default=FACTORY)
+        parser.add_option(
+            '-p',
+            '--project',
+            dest='project',
+            metavar='PROJECT',
+            help=f'project to process (default: {FACTORY})',
+            default=FACTORY,
+        )
         parser.add_option('--reference-project', metavar='PROJECT',
                           action='append', help='reference project')
         return parser
@@ -186,9 +189,10 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
                 elif opts.request:
                     name = o.name
                     if o.kind == 'group':
-                        name = 'group:' + name
-                    print("osc -A {} reqbs -r bugowner -m 'copy bug owner from previous codestream' {} {} {}".format(
-                        self.tool.apiurl, self.tool.project, p, name))
+                        name = f'group:{name}'
+                    print(
+                        f"osc -A {self.tool.apiurl} reqbs -r bugowner -m 'copy bug owner from previous codestream' {self.tool.project} {p} {name}"
+                    )
                 elif opts.employee:
                     if o.kind != 'person':
                         logger.debug('%s not a person', o.name)
@@ -236,9 +240,10 @@ class CommandLineInterface(ToolBase.CommandLineInterface):
                 if opts.request:
                     name = o.name
                     if o.kind == 'group':
-                        name = 'group:' + name
-                    print("osc -A {} reqbs -r bugowner -m 'add last submitter as bug owner' {} {} {}".format(
-                        self.tool.apiurl, self.tool.project, p, name))
+                        name = f'group:{name}'
+                    print(
+                        f"osc -A {self.tool.apiurl} reqbs -r bugowner -m 'add last submitter as bug owner' {self.tool.project} {p} {name}"
+                    )
 
 
 if __name__ == "__main__":

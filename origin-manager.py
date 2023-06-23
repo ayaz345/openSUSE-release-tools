@@ -44,13 +44,11 @@ class OriginManager(ReviewBot.ReviewBot):
                                      origin_info_new, origin_info_old,
                                      source_hash, source_hash)
 
-        reviews = {}
-
-        # Remove all additional_reviews as there are no source changes.
-        for key, comment in result.reviews.items():
-            if key in ('fallback', 'maintainer'):
-                reviews[key] = comment
-
+        reviews = {
+            key: comment
+            for key, comment in result.reviews.items()
+            if key in ('fallback', 'maintainer')
+        }
         if result.accept:
             config = config_load(self.apiurl, action.tgt_project)
             if request.creator == config['review-user']:
@@ -79,8 +77,8 @@ class OriginManager(ReviewBot.ReviewBot):
 
     def check_source_submission(self, src_project, src_package, src_rev, tgt_project, tgt_package):
         kind = package_kind(self.apiurl, tgt_project, tgt_package)
-        if not (kind is None or kind == 'source'):
-            self.review_messages['accepted'] = 'skipping {} package since not source'.format(kind)
+        if kind is not None and kind != 'source':
+            self.review_messages['accepted'] = f'skipping {kind} package since not source'
             return True
 
         advance, result = self.config_validate(tgt_project)
@@ -133,8 +131,8 @@ class OriginManager(ReviewBot.ReviewBot):
             return False, False
         if not self.dryrun and config['review-user'] != self.review_user:
             self.logger.warning(
-                'OSRT:OriginConfig.review-user ({}) does not match ReviewBot.review_user ({})'.format(
-                    config['review-user'], self.review_user))
+                f"OSRT:OriginConfig.review-user ({config['review-user']}) does not match ReviewBot.review_user ({self.review_user})"
+            )
 
         return True, True
 
@@ -153,7 +151,7 @@ class OriginManager(ReviewBot.ReviewBot):
 
         override, who = self.devel_project_simulate_check_command(source_project, target_project)
         if override:
-            return override, 'change_devel command by {}'.format(who)
+            return override, f'change_devel command by {who}'
 
         return False, None
 
@@ -176,10 +174,7 @@ class OriginManager(ReviewBot.ReviewBot):
         self.policy_result_comment_add(project, package, result.comments)
 
         if result.wait:
-            # Allow overriding a policy wait by accepting as workaround with the
-            # hope that pending request will be accepted.
-            override = self.request_override_check(True)
-            if override:
+            if override := self.request_override_check(True):
                 self.review_messages['accepted'] = origin_annotation_dump(
                     origin_info_new, origin_info_old, self.review_messages['accepted'], raw=True)
                 return override
@@ -221,7 +216,7 @@ class OriginManager(ReviewBot.ReviewBot):
     def policy_result_comment_add(self, project, package, comments):
         message = '\n\n'.join(comments)
         if len(self.request.actions) > 1:
-            message = '## {}/{}\n\n{}'.format(project, package, message)
+            message = f'## {project}/{package}\n\n{message}'
             suffix = '::'.join([project, package])
         else:
             suffix = None

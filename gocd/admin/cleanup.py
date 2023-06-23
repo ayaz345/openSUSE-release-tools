@@ -15,11 +15,12 @@ container_image = "registry.opensuse.org/opensuse/tools/images/containers_tumble
 
 
 def botmaster_headers(version):
-    headers = {"Authorization": f"Bearer {token}"}
-    headers["X-GoCD-Confirm"] = "true"
-    headers["Accept"] = f"application/vnd.go.cd.v{version}+json"
-    headers["Content-Type"] = "application/json"
-    return headers
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-GoCD-Confirm": "true",
+        "Accept": f"application/vnd.go.cd.v{version}+json",
+        "Content-Type": "application/json",
+    }
 
 
 def botmaster_get(url, version):
@@ -129,21 +130,14 @@ def main():
         [
             "docker",
             "tag",
-            container_image + ":latest",
-            container_image + ":previous",
+            f"{container_image}:latest",
+            f"{container_image}:previous",
         ],
         check=True,
     )
 
     # pull new image - if registry is down, better stop here
-    subprocess.run(
-        [
-            "docker",
-            "pull",
-            container_image + ":latest",
-        ],
-        check=True,
-    )
+    subprocess.run(["docker", "pull", f"{container_image}:latest"], check=True)
 
     # disable all agents
     delete_agents(only_disable=True)

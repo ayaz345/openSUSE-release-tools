@@ -42,16 +42,14 @@ class ToolBase(object):
         return self.retried_GET(url).read()
 
     def cached_GET(self, url):
-        if self.caching:
-            return self._cached_GET(url)
-        return self.retried_GET(url).read()
+        return self._cached_GET(url) if self.caching else self.retried_GET(url).read()
 
     def retried_GET(self, url):
         try:
             return http_GET(url)
         except HTTPError as e:
             if 500 <= e.code <= 599:
-                print('Retrying {}'.format(url))
+                print(f'Retrying {url}')
                 time.sleep(1)
                 return self.retried_GET(url)
             logging.error('%s: %s', e, url)
@@ -60,7 +58,7 @@ class ToolBase(object):
             logging.error('%s: "%s - %s" %s', e, e.reason, type(e.reason), url)
             # connection timeout
             if type(e.reason) == TimeoutError:
-                print('Retrying {}'.format(url))
+                print(f'Retrying {url}')
                 time.sleep(1)
                 return self.retried_GET(url)
             raise e
@@ -94,7 +92,7 @@ class ToolBase(object):
 
     def meta_get_packagelist(self, prj, deleted=None, expand=False):
         root = ET.fromstring(self._meta_get_packagelist(prj, deleted, expand))
-        res = list()
+        res = []
         for node in root.findall('entry'):
             name = node.get('name')
             if not (name == '000product' or name.startswith('patchinfo.')):
@@ -164,9 +162,7 @@ class CommandLineInterface(cmdln.Cmdln):
     def setup_tool(self, toolclass=ToolBase):
         """ reimplement this """
 
-        tool = toolclass()
-
-        return tool
+        return toolclass()
 
 # example
 #    @cmdln.option('-n', '--interval', metavar="minutes", type="int", help="periodic interval in minutes")
@@ -182,7 +178,6 @@ class CommandLineInterface(cmdln.Cmdln):
         """
         class ExTimeout(Exception):
             """raised on timeout"""
-
         if interval:
             def alarm_called(nr, frame):
                 raise ExTimeout()
@@ -202,7 +197,7 @@ class CommandLineInterface(cmdln.Cmdln):
                 except ExTimeout:
                     pass
                 signal.alarm(0)
-                logger.info("recheck at %s" % datetime.datetime.now().isoformat())
+                logger.info(f"recheck at {datetime.datetime.now().isoformat()}")
                 continue
             break
 

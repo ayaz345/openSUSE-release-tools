@@ -78,7 +78,7 @@ class CacheManager(object):
                 print('> migrating caches', file=sys.stderr)
 
                 # Move existing dir out of the way in order to nest.
-                cache_moved = CacheManager.directory() + '-main'
+                cache_moved = f'{CacheManager.directory()}-main'
                 if not os.path.exists(cache_moved):
                     os.rename(CacheManager.directory(), cache_moved)
 
@@ -93,10 +93,9 @@ class CacheManager(object):
                 destination = None
 
             print(
-                '> - {} -> {}'.format(
-                    os.path.relpath(source, cache_root),
-                    os.path.relpath(destination, cache_root) if destination else None),
-                file=sys.stderr)
+                f'> - {os.path.relpath(source, cache_root)} -> {os.path.relpath(destination, cache_root) if destination else None}',
+                file=sys.stderr,
+            )
 
             if not destination:
                 shutil.rmtree(source)

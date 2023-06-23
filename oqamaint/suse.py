@@ -11,8 +11,10 @@ from oqamaint.update import Update
 MINIMALS = {
     x.rstrip()
     for x in requests.get(
-        'https://gitlab.suse.de/qa-maintenance/metadata/raw/master/packages-to-be-tested-on-minimal-systems').iter_lines()
-    if len(x) > 0 and not (x.startswith(b"#") or x.startswith(b' '))}
+        'https://gitlab.suse.de/qa-maintenance/metadata/raw/master/packages-to-be-tested-on-minimal-systems'
+    ).iter_lines()
+    if len(x) > 0 and not x.startswith(b"#") and not x.startswith(b' ')
+}
 
 
 class SUSEUpdate(Update):
@@ -35,23 +37,16 @@ class SUSEUpdate(Update):
             if package.startswith("kernel-"):
                 skip = True
                 break
-            match = re.match(pattern, package)
-            if match:
-                target = match.group(1)
-        if skip:
-            return None
-
-        return target
+            if match := re.match(pattern, package):
+                target = match[1]
+        return None if skip else target
 
     @staticmethod
     def parse_kgraft_version(kgraft_target):
         return kgraft_target.lstrip('SLE').split('_')[0]
 
     def add_minimal_settings(self, prj, settings):
-        minimal = False
-        for pkg in self.incident_packages(prj):
-            if pkg in MINIMALS:
-                minimal = True
+        minimal = any(pkg in MINIMALS for pkg in self.incident_packages(prj))
         if not minimal:
             return []
 
@@ -89,5 +84,5 @@ class SUSEUpdate(Update):
             return []
         settings += self.add_minimal_settings(src_prj, settings[0])
         settings += self.add_kernel_settings(settings[0])
-        self.logger.debug("settings are: {}".format(settings))
+        self.logger.debug(f"settings are: {settings}")
         return settings

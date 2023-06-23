@@ -70,12 +70,12 @@ def do_origin(self, subcmd, opts, *args):
         osc origin update [--listen] [--listen-seconds] [PACKAGE...]
     """
 
-    if len(args) == 0:
+    if not args:
         raise oscerr.WrongArgs('A command must be indicated.')
     command = args[0]
     if command not in ['config', 'cron', 'history', 'list', 'package', 'potentials',
                        'projects', 'report', 'update']:
-        raise oscerr.WrongArgs('Unknown command: {}'.format(command))
+        raise oscerr.WrongArgs(f'Unknown command: {command}')
     if command == 'package' and len(args) < 2:
         raise oscerr.WrongArgs('A package must be indicated.')
 
@@ -93,9 +93,11 @@ def do_origin(self, subcmd, opts, *args):
             raise oscerr.WrongArgs('A project must be indicated.')
         config = config_load(apiurl, opts.project)
         if not config:
-            raise oscerr.WrongArgs('OSRT:OriginConfig attribute missing from {}'.format(opts.project))
+            raise oscerr.WrongArgs(
+                f'OSRT:OriginConfig attribute missing from {opts.project}'
+            )
 
-    function = 'osrt_origin_{}'.format(command)
+    function = f'osrt_origin_{command}'
     globals()[function](apiurl, opts, *args[1:])
 
 
@@ -118,22 +120,23 @@ def osrt_origin_cron(apiurl, opts, *args):
             if os.path.exists(lookup_path):
                 # Update the last accessed time to avoid cache manager culling.
                 os.utime(lookup_path, (time.time(), os.stat(lookup_path).st_mtime))
-                print('{}<locked> lookup preserved'.format(project))
+                print(f'{project}<locked> lookup preserved')
                 continue
 
         # Force update lookup information.
         lookup = osrt_origin_lookup(apiurl, project, force_refresh=True, quiet=True)
-        print('{} lookup updated for {} package(s)'.format(project, len(lookup)))
+        print(f'{project} lookup updated for {len(lookup)} package(s)')
 
 
 def osrt_origin_dump(format, data):
     if format == 'json':
         print(json.dumps(data))
+    elif format == 'plain':
+        return False
     elif format == 'yaml':
         print(yaml.dump(data))
     else:
-        if format != 'plain':
-            print('unknown format: {}'.format(format), file=sys.stderr)
+        print(f'unknown format: {format}', file=sys.stderr)
         return False
     return True
 
@@ -203,7 +206,7 @@ def osrt_origin_lookup(apiurl, project, force_refresh=False, previous=False, qui
 
     if not previous and not quiet:
         dt = timedelta(seconds=time.time() - os.stat(lookup_path).st_mtime)
-        print('# generated {} ago'.format(dt), file=sys.stderr)
+        print(f'# generated {dt} ago', file=sys.stderr)
 
     return lookup
 
@@ -225,16 +228,15 @@ def osrt_origin_list(apiurl, opts, *args):
             for action in request.actions:
                 requests_map[action.tgt_package] = request.reqid
 
-        # Convert data from lookup to list.
-        out = []
-        for package, details in sorted(lookup.items()):
-            out.append({
+        out = [
+            {
                 'package': package,
                 'origin': details['origin'],
                 'revisions': details.get('revisions', []),
                 'request': requests_map.get(package),
-            })
-
+            }
+            for package, details in sorted(lookup.items())
+        ]
         osrt_origin_dump(opts.format, out)
         return
 
@@ -254,10 +256,10 @@ def osrt_origin_potentials(apiurl, opts, *packages):
     potentials = origin_potentials(apiurl, opts.project, packages[0])
 
     if opts.format != 'plain':
-        out = []
-        for origin, version in potentials.items():
-            out.append({'origin': origin, 'version': version})
-
+        out = [
+            {'origin': origin, 'version': version}
+            for origin, version in potentials.items()
+        ]
         osrt_origin_dump(opts.format, out)
         return
 
@@ -291,7 +293,7 @@ def osrt_origin_report_count_diff(origin_count, origin_count_previous):
     origin_count_change = {}
     for origin, count in origin_count.items():
         delta = count - origin_count_previous.get(origin, 0)
-        delta = '+' + str(delta) if delta > 0 else str(delta)
+        delta = f'+{str(delta)}' if delta > 0 else str(delta)
         origin_count_change[origin] = delta
 
     return origin_count_change
@@ -344,17 +346,24 @@ def osrt_origin_report(apiurl, opts, *args):
     if opts.diff and len(package_diff):
         line_format = '{:<' + str(osrt_origin_max_key(package_diff, 7)) + '}  ' + \
             '  '.join([column_formats[0]] * 2)
-        report.append('')
-        report.append(line_format.format('package', 'origin', 'origin previous'))
-        for package, origins in sorted(package_diff.items()):
-            report.append(line_format.format(package, *origins))
-
+        report.extend(('', line_format.format('package', 'origin', 'origin previous')))
+        report.extend(
+            line_format.format(package, *origins)
+            for package, origins in sorted(package_diff.items())
+        )
     body = '\n'.join(report)
     print(body)
 
     if opts.mail:
-        mail_send(apiurl, opts.project, 'release-list', '{} origin report'.format(opts.project),
-                  body, None, dry=opts.dry)
+        mail_send(
+            apiurl,
+            opts.project,
+            'release-list',
+            f'{opts.project} origin report',
+            body,
+            None,
+            dry=opts.dry,
+        )
 
 
 def osrt_origin_update(apiurl, opts, *packages):
@@ -365,14 +374,13 @@ def osrt_origin_update(apiurl, opts, *packages):
 
         return
 
-    if len(packages) == 0:
+    if not packages:
         packages = osrt_origin_update_packages(apiurl, opts.project)
 
     for package in packages:
-        print('checking for updates to {}/{}...'.format(opts.project, package))
+        print(f'checking for updates to {opts.project}/{package}...')
 
-        request_future = origin_update(apiurl, opts.project, package)
-        if request_future:
+        if request_future := origin_update(apiurl, opts.project, package):
             request_future.print_and_create(opts.dry)
 
 

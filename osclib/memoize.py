@@ -76,7 +76,7 @@ def memoize(ttl=None, session=False, add_invalidate=False):
         # Implement a POSIX lock / unlock extension for shelves. Inspired
         # on ActiveState Code recipe #576591
         def _lock(filename):
-            lckfile = open(filename + '.lck', 'w')
+            lckfile = open(f'{filename}.lck', 'w')
             fcntl.flock(lckfile.fileno(), fcntl.LOCK_EX)
             return lckfile
 
@@ -131,7 +131,7 @@ def memoize(ttl=None, session=False, add_invalidate=False):
             cache.clear()
 
         def _add_invalidate_method(_self):
-            name = '_invalidate_%s' % fn.__name__
+            name = f'_invalidate_{fn.__name__}'
             if not hasattr(_self, name):
                 setattr(_self, name, _invalidate)
 
@@ -143,6 +143,7 @@ def memoize(ttl=None, session=False, add_invalidate=False):
         def _fn(*args, **kwargs):
             def total_seconds(td):
                 return (td.microseconds + (td.seconds + td.days * 24 * 3600.) * 10**6) / 10**6
+
             now = datetime.now()
             if add_invalidate:
                 _self = args[0]
@@ -153,7 +154,7 @@ def memoize(ttl=None, session=False, add_invalidate=False):
             cache = _open_cache(cache_name)
             if key in cache:
                 timestamp, value = cache[key]
-                updated = True if total_seconds(now - timestamp) < ttl else False
+                updated = total_seconds(now - timestamp) < ttl
             if not updated:
                 value = fn(*args, **kwargs)
                 cache[key] = (now, value)

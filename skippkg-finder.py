@@ -99,16 +99,14 @@ class SkippkgFinder(object):
         )
         if pkg.startswith(prefixes) or pkg.endswith(suffixes) or pkg in matches:
             return True
-        if (
+        return (
             'sles' in pkg
             or 'sled' in pkg
             or 'sap-' in pkg
             or '-sap' in pkg
             or 'eula' in pkg
             or 'branding' in pkg
-        ):
-            return True
-        return False
+        )
 
     def get_packagelist(self, project, sle_pkglist=[], by_project=True):
         """
@@ -118,7 +116,6 @@ class SkippkgFinder(object):
         """
 
         pkglist = {}
-        packageinfo = {}
         query = {'expand': 1}
         root = ET.parse(http_GET(makeurl(self.apiurl, ['source', project],
                                  query=query))).getroot()
@@ -128,24 +125,24 @@ class SkippkgFinder(object):
             is_incidentpkg = False
             # Metapackage should not be selected
             if pkgname.startswith('00') or\
-                    pkgname.startswith('_') or\
-                    pkgname.startswith('patchinfo.') or\
-                    pkgname.startswith('skelcd-control') or\
-                    pkgname.startswith('Leap-release') or\
-                    pkgname.endswith('-mini') or\
-                    '-mini.' in pkgname:
+                        pkgname.startswith('_') or\
+                        pkgname.startswith('patchinfo.') or\
+                        pkgname.startswith('skelcd-control') or\
+                        pkgname.startswith('Leap-release') or\
+                        pkgname.endswith('-mini') or\
+                        '-mini.' in pkgname:
                 continue
             # Ugly hack for package has dot in source package name
             # eg. go1.x incidents as the name would be go1.x.xxx
             if '.' in pkgname and re.match(r'[0-9]+$', pkgname.split('.')[-1]) and \
-                    orig_project.startswith('SUSE:') and orig_project.endswith(':Update'):
+                        orig_project.startswith('SUSE:') and orig_project.endswith(':Update'):
                 is_incidentpkg = True
                 if pkgname.startswith('go1') or\
-                        pkgname.startswith('bazel0') or\
-                        pkgname.startswith('dotnet') or\
-                        pkgname.startswith('rust1') or\
-                        pkgname.startswith('ruby2'):
-                    if not (pkgname.count('.') > 1):
+                            pkgname.startswith('bazel0') or\
+                            pkgname.startswith('dotnet') or\
+                            pkgname.startswith('rust1') or\
+                            pkgname.startswith('ruby2'):
+                    if pkgname.count('.') <= 1:
                         is_incidentpkg = False
 
             # If an incident found then update the package origin info
@@ -166,8 +163,11 @@ class SkippkgFinder(object):
                 pkglist[pkgname] = {'Project': sle_pkglist[pkgname]['Project'], 'Package': sle_pkglist[pkgname]['Package']}
 
         if by_project:
-            for pkg in pkglist.keys():
-                if pkglist[pkg]['Project'].startswith('SUSE:') and self.is_sle_specific(pkg):
+            packageinfo = {}
+            for pkg, value in pkglist.items():
+                if value['Project'].startswith('SUSE:') and self.is_sle_specific(
+                    pkg
+                ):
                     continue
                 if pkglist[pkg]['Project'] not in packageinfo:
                     packageinfo[pkglist[pkg]['Project']] = []
@@ -195,7 +195,7 @@ class SkippkgFinder(object):
         for binary_list in root:
             package = binary_list.get('package')
             package = package.split(':', 1)[0]
-            index = project + "_" + package
+            index = f"{project}_{package}"
 
             if index not in package_binaries:
                 package_binaries[index] = []
@@ -205,15 +205,17 @@ class SkippkgFinder(object):
                 if not result:
                     continue
 
-                if result.group('arch') == 'src' or result.group('arch') == 'nosrc':
+                if result['arch'] in ['src', 'nosrc']:
                     continue
-                if result.group('name').endswith('-debuginfo') or result.group('name').endswith('-debuginfo-32bit'):
+                if result['name'].endswith('-debuginfo') or result[
+                    'name'
+                ].endswith('-debuginfo-32bit'):
                     continue
-                if result.group('name').endswith('-debugsource'):
+                if result['name'].endswith('-debugsource'):
                     continue
 
-                if result.group('name') not in package_binaries[index]:
-                    package_binaries[index].append(result.group('name'))
+                if result['name'] not in package_binaries[index]:
+                    package_binaries[index].append(result['name'])
 
         return package_binaries
 
@@ -224,15 +226,14 @@ class SkippkgFinder(object):
         """
 
         if '-bootstrap' in package or\
-                'Tumbleweed' in package or\
-                'metis' in package:
+                    'Tumbleweed' in package or\
+                    'metis' in package:
             return True
         # These packages must have a good reason not to be single-speced
         # from one source.
-        if package.startswith('python2-') or\
-                package.startswith('python3'):
-            return True
-        return False
+        return bool(
+            package.startswith('python2-') or package.startswith('python3')
+        )
 
     def exception_binary(self, package):
         """
@@ -240,11 +241,11 @@ class SkippkgFinder(object):
         package parameter is RPM filename.
         """
 
-        if package == 'openSUSE-release' or\
-                package == 'openSUSE-release-ftp' or\
-                package == 'openSUSE-Addon-NonOss-release':
-            return True
-        return False
+        return package in [
+            'openSUSE-release',
+            'openSUSE-release-ftp',
+            'openSUSE-Addon-NonOss-release',
+        ]
 
     def create_group(self, group, conditional, packages=[]):
         if not (group and conditional):
@@ -288,18 +289,18 @@ class SkippkgFinder(object):
 
         for prj in leap_pkglist.keys():
             for pkg in leap_pkglist[prj]:
-                cands = [prj + "_" + pkg]
+                cands = [f"{prj}_{pkg}"]
                 # Handling for SLE forks, or package has different multibuild bits
                 # enablility between SLE and openSUSE
                 if prj.startswith('openSUSE:') and pkg in sle_pkglist and\
-                        not self.is_sle_specific(pkg):
+                            not self.is_sle_specific(pkg):
                     cands.append(sle_pkglist[pkg]['Project'] + "_" + sle_pkglist[pkg]['Package'])
                 logging.debug(cands)
                 for index in cands:
                     if index in package_binaries:
                         selected_binarylist += package_binaries[index]
                     else:
-                        logging.info("Can not find binary of %s" % index)
+                        logging.info(f"Can not find binary of {index}")
 
         # Some packages has been obsoleted by new updated package, however
         # there are application still depend on old library when it builds
@@ -338,7 +339,7 @@ class SkippkgFinder(object):
             for binary in fullbinarylist:
                 result = re.match(regex, binary)
                 if result and binary not in obsoleted and\
-                        binary not in self.skiplist_supplement_ignores:
+                            binary not in self.skiplist_supplement_ignores:
                     obsoleted.append(binary)
 
         skip_list = self.create_group('NON_FTP_PACKAGES', 'drop_from_ftp', obsoleted)
@@ -352,8 +353,8 @@ class SkippkgFinder(object):
             if node[0] not in cond_list:
                 cond_list[node[0]] = []
             cond_list[node[0]].append(node[1])
-        for cond in cond_list.keys():
-            group = self.create_group('NON_FTP_PACKAGES_' + cond, cond, cond_list[cond])
+        for cond in cond_list:
+            group = self.create_group(f'NON_FTP_PACKAGES_{cond}', cond, cond_list[cond])
             skip_list += group
 
         if not self.print_only:

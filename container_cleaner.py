@@ -35,11 +35,9 @@ class ContainerCleaner(ToolBase.ToolBase):
         buckets = {}
         regex_maintenance_release = re.compile(R"^(.+)\.[0-9]+$")
         for srccontainer in srccontainers:
-            # Get the right bucket
-            match = regex_maintenance_release.match(srccontainer)
-            if match:
+            if match := regex_maintenance_release.match(srccontainer):
                 # Maintenance release
-                package = match.group(1)
+                package = match[1]
             else:
                 # Not renamed
                 package = srccontainer
@@ -49,9 +47,9 @@ class ContainerCleaner(ToolBase.ToolBase):
 
             buckets[package] += [srccontainer]
 
-        for package in buckets:
+        for package, value in buckets.items():
             # Sort each bucket: Newest provider first
-            buckets[package].sort(reverse=True)
+            value.sort(reverse=True)
             logging.debug("Found %d providers of %s", len(buckets[package]), package)
 
         # Get a hash for sourcecontainer -> arch with binaries
@@ -68,11 +66,13 @@ class ContainerCleaner(ToolBase.ToolBase):
                 if len(bins) > 0:
                     match = regex_srccontainer.match(buildcontainer)
                     if not match:
-                        raise Exception("Could not map %s to source container" % buildcontainer)
+                        raise Exception(f"Could not map {buildcontainer} to source container")
 
-                    srccontainer = match.group(1)
+                    srccontainer = match[1]
                     if srccontainer not in srccontainers:
-                        raise Exception("Mapped %s to wrong source container (%s)" % (buildcontainer, srccontainer))
+                        raise Exception(
+                            f"Mapped {buildcontainer} to wrong source container ({srccontainer})"
+                        )
 
                     if srccontainer not in srccontainerarchs:
                         srccontainerarchs[srccontainer] = []
@@ -82,13 +82,9 @@ class ContainerCleaner(ToolBase.ToolBase):
 
         # Now go through each bucket and find out what doesn't contribute to the newest five
         can_delete = []
-        for package in buckets:
-            # {"x86_64": 1, "aarch64": 2, ...}
-            archs_found = {}
-            for arch in archs:
-                archs_found[arch] = 0
-
-            for srccontainer in buckets[package]:
+        for package, value_ in buckets.items():
+            archs_found = {arch: 0 for arch in archs}
+            for srccontainer in value_:
                 contributes = False
                 if srccontainer in srccontainerarchs:
                     for arch in srccontainerarchs[srccontainer]:
@@ -100,7 +96,7 @@ class ContainerCleaner(ToolBase.ToolBase):
                     logging.debug("%s contributes to %s", srccontainer, package)
                 else:
                     logging.info("%s does not contribute", srccontainer)
-                    if len([count for count in archs_found.values() if count > 0]) == 0:
+                    if not [count for count in archs_found.values() if count > 0]:
                         # If there are A, B, C and D, with only C and D providing binaries,
                         # A and B aren't deleted because they have newer sources. This is
                         # to avoid deleting something due to unforeseen circumstances, e.g.

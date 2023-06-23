@@ -22,8 +22,9 @@ class CheckerBugowner(ReviewBot.ReviewBot):
         self.override_allow = False
 
     def check_source_submission(self, src_project, src_package, src_rev, target_project, target_package):
-        self.logger.info("%s/%s@%s -> %s/%s" % (src_project,
-                                                src_package, src_rev, target_project, target_package))
+        self.logger.info(
+            f"{src_project}/{src_package}@{src_rev} -> {target_project}/{target_package}"
+        )
         if src_package.startswith('patchinfo'):
             return True
         if self.exists_in(target_project, target_package):
@@ -31,13 +32,11 @@ class CheckerBugowner(ReviewBot.ReviewBot):
         for line in self.request.description.splitlines():
             matched_package = None
             matched_maintainer = None
-            m = re.match(r'\s*bugowner:\s*(\S+)\s*$', line)
-            if m:
-                matched_maintainer = m.group(1)
-            m = re.match(r'\s*bugowner:\s(\S+)\s(\S+)\s*$', line)
-            if m:
-                matched_maintainer = m.group(2)
-                matched_package = m.group(1)
+            if m := re.match(r'\s*bugowner:\s*(\S+)\s*$', line):
+                matched_maintainer = m[1]
+            if m := re.match(r'\s*bugowner:\s(\S+)\s(\S+)\s*$', line):
+                matched_maintainer = m[2]
+                matched_package = m[1]
             if not matched_maintainer:
                 continue
             if matched_package and matched_package != target_package:
@@ -47,7 +46,7 @@ class CheckerBugowner(ReviewBot.ReviewBot):
                 return False
             return True
         self.review_messages['declined'] += f"\n{target_package } appears to be a new package and " + \
-            "no matching 'bugowner:' line could be found in the request description. See https://confluence.suse.com/x/WgH2OQ"
+                "no matching 'bugowner:' line could be found in the request description. See https://confluence.suse.com/x/WgH2OQ"
         return False
 
     def existing_url(self, url):

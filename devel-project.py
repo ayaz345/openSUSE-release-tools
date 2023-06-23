@@ -54,12 +54,11 @@ def devel_projects_get(apiurl, project):
     Loads all packages for a given project, checks them for a devel link and
     keeps a list of unique devel projects.
     """
-    devel_projects = {}
-
-    root = search(apiurl, **{'package': "@project='{}'".format(project)})['package']
-    for devel in root.findall('package/devel[@project]'):
-        devel_projects[devel.attrib['project']] = True
-
+    root = search(apiurl, **{'package': f"@project='{project}'"})['package']
+    devel_projects = {
+        devel.attrib['project']: True
+        for devel in root.findall('package/devel[@project]')
+    }
     # Ensure self does not end up in list.
     if project in devel_projects:
         del devel_projects[project]
@@ -82,9 +81,7 @@ def list(args):
 
 def devel_projects_load(args):
     api = staging_api(args)
-    devel_projects = api.pseudometa_file_load('devel_projects')
-
-    if devel_projects:
+    if devel_projects := api.pseudometa_file_load('devel_projects'):
         return devel_projects.splitlines()
 
     raise Exception('no devel projects found')
@@ -103,7 +100,7 @@ def maintainer(args):
         groups = meta.xpath('group[@role="maintainer"]/@groupid')
         intersection = set(groups).intersection(desired)
         if len(intersection) != len(desired):
-            print('{} missing {}'.format(devel_project, ', '.join(desired - intersection)))
+            print(f"{devel_project} missing {', '.join(desired - intersection)}")
 
 
 def notify(args):
@@ -125,7 +122,7 @@ def notify(args):
                 maintainer_map.setdefault(userid, set())
                 maintainer_map[userid].add(devel_package_identifier)
 
-    subject = 'Packages you maintain are present in {}'.format(args.project)
+    subject = f'Packages you maintain are present in {args.project}'
     for userid, package_identifiers in maintainer_map.items():
         email = entity_email(apiurl, userid)
         message = """This is a friendly reminder about your packages in {}.
@@ -146,14 +143,14 @@ in charge of the following packages:
 - {}""".format(
             args.project, '\n- '.join(sorted(package_identifiers)))
 
-        log = 'notified {} of {} packages'.format(userid, len(package_identifiers))
+        log = f'notified {userid} of {len(package_identifiers)} packages'
         try:
             mail_send(apiurl, args.project, email, subject, message, dry=args.dry)
             print(log)
         except smtplib.SMTPRecipientsRefused:
-            print('[FAILED ADDRESS] {} ({})'.format(log, email))
+            print(f'[FAILED ADDRESS] {log} ({email})')
         except smtplib.SMTPException as e:
-            print('[FAILED SMTP] {} ({})'.format(log, e))
+            print(f'[FAILED SMTP] {log} ({e})')
 
 
 def requests(args):
@@ -172,12 +169,16 @@ def requests(args):
             if age < args.min_age:
                 continue
 
-            print(' '.join((
-                request.reqid,
-                '/'.join((action.tgt_project, action.tgt_package)),
-                '/'.join((action.src_project, action.src_package)),
-                '({} days old)'.format(age),
-            )))
+            print(
+                ' '.join(
+                    (
+                        request.reqid,
+                        '/'.join((action.tgt_project, action.tgt_package)),
+                        '/'.join((action.src_project, action.src_package)),
+                        f'({age} days old)',
+                    )
+                )
+            )
 
             if args.remind:
                 remind_comment(apiurl, args.repeat_age, request.reqid, action.tgt_project, action.tgt_package)
@@ -206,12 +207,18 @@ def reviews(args):
                 if review.by_project == devel_project:
                     break
 
-            print(' '.join((
-                request.reqid,
-                '/'.join((review.by_project, review.by_package)) if review.by_package else review.by_project,
-                '/'.join((action.tgt_project, action.tgt_package)),
-                '({} days old)'.format(age),
-            )))
+            print(
+                ' '.join(
+                    (
+                        request.reqid,
+                        '/'.join((review.by_project, review.by_package))
+                        if review.by_package
+                        else review.by_project,
+                        '/'.join((action.tgt_project, action.tgt_package)),
+                        f'({age} days old)',
+                    )
+                )
+            )
 
             if args.remind:
                 remind_comment(apiurl, args.repeat_age, request.reqid, review.by_project, review.by_package)
@@ -229,11 +236,11 @@ def maintainers_get(apiurl, project, package=None):
         meta = show_project_meta(apiurl, project)
     meta = ET.fromstringlist(meta)
 
-    userids = []
-    for person in meta.findall('person[@role="maintainer"]'):
-        userids.append(person.get('userid'))
-
-    if len(userids) == 0 and package is not None:
+    userids = [
+        person.get('userid')
+        for person in meta.findall('person[@role="maintainer"]')
+    ]
+    if not userids and package is not None:
         # Fallback to project if package has no maintainers.
         return maintainers_get(apiurl, project)
 
@@ -248,7 +255,7 @@ def remind_comment(apiurl, repeat_age, request_id, project, package=None):
     if comment:
         delta = datetime.utcnow() - comment['when']
         if delta.days < repeat_age:
-            print('  skipping due to previous reminder from {} days ago'.format(delta.days))
+            print(f'  skipping due to previous reminder from {delta.days} days ago')
             return
 
         # Repeat notification so remove old comment.
@@ -263,11 +270,11 @@ def remind_comment(apiurl, repeat_age, request_id, project, package=None):
 
     userids = sorted(maintainers_get(apiurl, project, package))
     if len(userids):
-        users = ['@' + userid for userid in userids]
-        message = '{}: {}'.format(', '.join(users), REMINDER)
+        users = [f'@{userid}' for userid in userids]
+        message = f"{', '.join(users)}: {REMINDER}"
     else:
         message = REMINDER
-    print('  ' + message)
+    print(f'  {message}')
     message = comment_api.add_marker(message, BOT_NAME)
     comment_api.add_comment(request_id=request_id, comment=message)
 

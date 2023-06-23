@@ -44,10 +44,7 @@ class RequestFinder(object):
 
         root = ET.parse(f).getroot()
 
-        if root.get('id', None) != str(request_id):
-            return None
-
-        return root
+        return None if root.get('id', None) != str(request_id) else root
 
     def find_request_id(self, request_id):
         """
@@ -109,7 +106,7 @@ class RequestFinder(object):
         :param newcand: the review state of staging-group must be new
         """
 
-        query = 'types=submit,delete&states=new,review&project={}&view=collection'.format(self.api.project)
+        query = f'types=submit,delete&states=new,review&project={self.api.project}&view=collection'
         url = makeurl(self.api.apiurl, ['request'], query)
         f = http_GET(url)
         root = ET.parse(f).getroot()
@@ -149,7 +146,7 @@ class RequestFinder(object):
                 continue
             if consider_stagings and self.find_staging_project(p):
                 continue
-            raise oscerr.WrongArgs('No SR# found for: {}'.format(p))
+            raise oscerr.WrongArgs(f'No SR# found for: {p}')
 
     def find_via_stagingapi(self, pkgs):
         """
@@ -173,7 +170,7 @@ class RequestFinder(object):
                         found = True
                         break
             if not found:
-                raise oscerr.WrongArgs('No SR# found for: {}'.format(p))
+                raise oscerr.WrongArgs(f'No SR# found for: {p}')
 
     def find_staging_project(self, project):
         """

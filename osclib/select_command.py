@@ -25,8 +25,7 @@ class SelectCommand(object):
         """
         f = http_GET(self.api.makeurl(['request', str(request)]))
         root = ET.parse(f).getroot()
-        package = str(root.find('action').find('target').attrib['package'])
-        return package
+        return str(root.find('action').find('target').attrib['package'])
 
     def _supersede(self, request):
         """
@@ -47,27 +46,26 @@ class SelectCommand(object):
         url = self.api.makeurl(['staging', self.api.project, 'staging_projects'], {'requests': 1})
         status = ET.parse(self.api.retried_GET(url)).getroot()
         for prj in status.findall('staging_project'):
-            for req in prj.findall('./staged_requests/request'):
-                if int(req.get('id')) < int(request) and req.get('package') == package:
-                    candidates.append((req.get('id'), package, prj.get('name')))
-
-        assert len(candidates) <= 1, 'There are more than one candidate to supersede {} ({}): {}'.format(
-            request, package, candidates)
+            candidates.extend(
+                (req.get('id'), package, prj.get('name'))
+                for req in prj.findall('./staged_requests/request')
+                if int(req.get('id')) < int(request)
+                and req.get('package') == package
+            )
+        assert (
+            len(candidates) <= 1
+        ), f'There are more than one candidate to supersede {request} ({package}): {candidates}'
 
         return candidates[0] if candidates else None
 
     def select_request(self, request, move, filter_from, remove_exclusion=False):
-        supersede = False
-
         staged_requests = {
             int(self.api.packages_staged[package]['rq_id']): package for package in self.api.packages_staged
         }
-        if request in staged_requests:
-            supersede = self._supersede(request)
-
+        supersede = self._supersede(request) if request in staged_requests else False
         if request not in staged_requests and not supersede:
             # Normal 'select' command
-            print('Adding request "{}" to project "{}"'.format(request, self.target_project))
+            print(f'Adding request "{request}" to project "{self.target_project}"')
 
             return self.api.rq_to_prj(request, self.target_project, remove_exclusion)
         elif request in staged_requests and (move or supersede):
@@ -75,23 +73,23 @@ class SelectCommand(object):
             # supersede = (new_rq, package, project)
             fprj = self.api.packages_staged[staged_requests[request]]['prj'] if not supersede else supersede[2]
             if filter_from and filter_from != fprj:
-                print('Ignoring "{}" in "{}" since not in "{}"'.format(request, fprj, filter_from))
+                print(f'Ignoring "{request}" in "{fprj}" since not in "{filter_from}"')
                 return True
 
             if supersede:
-                print('"{} ({}) is superseded by {}'.format(request, supersede[1], supersede[0]))
+                print(f'"{request} ({supersede[1]}) is superseded by {supersede[0]}')
 
             if fprj == self.target_project:
-                print('"{}" is currently in "{}"'.format(request, self.target_project))
+                print(f'"{request}" is currently in "{self.target_project}"')
                 return False
 
-            print('Moving "{}" from "{}" to "{}"'.format(request, fprj, self.target_project))
+            print(f'Moving "{request}" from "{fprj}" to "{self.target_project}"')
 
             # Store the source project, we also need to write a comment there
             self.affected_projects.add(fprj)
 
             return self.api.move_between_project(fprj, request, self.target_project)
-        elif request in staged_requests and not move:
+        elif request in staged_requests:
             # Previously selected, but not explicit move
             fprj = self.api.packages_staged[staged_requests[request]]['prj']
             msg = 'Request {} is already tracked in "{}".'
@@ -101,10 +99,8 @@ class SelectCommand(object):
                 msg = msg.format(fprj, self.target_project)
             print(msg)
             return True
-        elif supersede:
-            print('"{} ({}) supersedes {}'.format(request, supersede[1], supersede[0]))
         else:
-            raise oscerr.WrongArgs('Arguments for select are not correct.')
+            print(f'"{request} ({supersede[1]}) supersedes {supersede[0]}')
 
     def perform(self, requests, move=False,
                 filter_from=None, no_freeze=False, remove_exclusion=False):
@@ -132,7 +128,7 @@ class SelectCommand(object):
         requests = RequestFinder.find_sr(requests, self.api, newcand, consider_stagings=move)
         requests_count = len(requests)
         for index, request in enumerate(requests, start=1):
-            print('({}/{}) '.format(index, requests_count), end='')
+            print(f'({index}/{requests_count}) ', end='')
             if not self.select_request(request, move, filter_from, remove_exclusion=remove_exclusion):
                 return False
 

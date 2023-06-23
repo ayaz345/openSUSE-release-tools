@@ -40,7 +40,7 @@ class DockerRegistryClient():
         self.username = username
         self.password = password
         self.repository = repository
-        self.scopes = ["repository:%s:pull,push,delete" % repository]
+        self.scopes = [f"repository:{repository}:pull,push,delete"]
         self.token = None
 
     class DockerRegistryError(Exception):
@@ -63,8 +63,10 @@ class DockerRegistryClient():
             bearer_dict[assignment[0]] = assignment[1].strip('"')
 
         scope_param = "&scope=".join([""] + [urllib.parse.quote(scope) for scope in self.scopes])
-        response = requests.get("%s?service=%s%s" % (bearer_dict['realm'], bearer_dict['service'], scope_param),
-                                auth=(self.username, self.password))
+        response = requests.get(
+            f"{bearer_dict['realm']}?service={bearer_dict['service']}{scope_param}",
+            auth=(self.username, self.password),
+        )
         self.token = response.json()['token']
 
     def doHttpCall(self, method, url, **kwargs):
@@ -82,7 +84,7 @@ class DockerRegistryClient():
         while True:
             resp = None
             if self.token is not None:
-                kwargs['headers']['Authorization'] = "Bearer " + self.token
+                kwargs['headers']['Authorization'] = f"Bearer {self.token}"
 
             methods = {'POST': requests.post,
                        'GET': requests.get,
@@ -95,7 +97,7 @@ class DockerRegistryClient():
 
             resp = methods[method](url, **kwargs)
 
-            if resp.status_code == 401 or resp.status_code == 403:
+            if resp.status_code in [401, 403]:
                 if try_update_token:
                     try_update_token = False
                     self._updateToken(resp.headers['Www-Authenticate'])
@@ -121,16 +123,16 @@ class DockerRegistryClient():
         if reference is None:
             alg = hashlib.sha256()
             alg.update(content)
-            reference = "sha256:" + alg.hexdigest()
+            reference = f"sha256:{alg.hexdigest()}"
 
-        resp = self.doHttpCall("PUT", "/v2/%s/manifests/%s" % (self.repository, reference),
-                               headers={'Content-Type': content_json['mediaType']},
-                               data=content)
+        resp = self.doHttpCall(
+            "PUT",
+            f"/v2/{self.repository}/manifests/{reference}",
+            headers={'Content-Type': content_json['mediaType']},
+            data=content,
+        )
 
-        if resp.status_code != 201:
-            return False
-
-        return reference
+        return False if resp.status_code != 201 else reference
 
     def uploadManifestFile(self, filename, reference=None):
         """Upload a manifest. If the filename doesn't equal the digest, it's computed.
@@ -153,22 +155,29 @@ class DockerRegistryClient():
     def getManifest(self, reference):
         """Get a (json-parsed) manifest with the given reference (digest or tag).
         If the manifest does not exist, return None. For other errors, False."""
-        resp = self.doHttpCall("GET", "/v2/%s/manifests/%s" % (self.repository, reference),
-                               headers={'Accept': "application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json"})  # noqa: E501
+        resp = self.doHttpCall(
+            "GET",
+            f"/v2/{self.repository}/manifests/{reference}",
+            headers={
+                'Accept': "application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json"
+            },
+        )
 
         if resp.status_code == 404:
             return None
 
-        if resp.status_code != 200:
-            return False
-
-        return resp.json()
+        return False if resp.status_code != 200 else resp.json()
 
     def getManifestDigest(self, reference):
         """Return the digest of the manifest with the given reference.
         If the manifest doesn't exist or the request fails, it returns False."""
-        resp = self.doHttpCall("HEAD", "/v2/%s/manifests/%s" % (self.repository, reference),
-                               headers={'Accept': "application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json"})  # noqa: E501
+        resp = self.doHttpCall(
+            "HEAD",
+            f"/v2/{self.repository}/manifests/{reference}",
+            headers={
+                'Accept': "application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json"
+            },
+        )
 
         if resp.status_code != 200:
             return False
@@ -177,7 +186,7 @@ class DockerRegistryClient():
 
     def deleteManifest(self, digest):
         """Delete the manifest with the given reference."""
-        resp = self.doHttpCall("DELETE", "/v2/%s/manifests/%s" % (self.repository, digest))
+        resp = self.doHttpCall("DELETE", f"/v2/{self.repository}/manifests/{digest}")
 
         return resp.status_code == 202
 
@@ -193,8 +202,8 @@ class DockerRegistryClient():
             raise Exception("Invalid digest")
 
         # Check whether the blob already exists - don't upload it needlessly.
-        stat_request = self.doHttpCall("HEAD", "/v2/%s/blobs/%s" % (self.repository, digest))
-        if stat_request.status_code == 200 or stat_request.status_code == 307:
+        stat_request = self.doHttpCall("HEAD", f"/v2/{self.repository}/blobs/{digest}")
+        if stat_request.status_code in [200, 307]:
             return True
 
         # For now we can do a single upload call with everything inlined
@@ -204,11 +213,12 @@ class DockerRegistryClient():
             content = blob.read()
 
         # First request an upload "slot", we get an URL we can PUT to back
-        upload_request = self.doHttpCall("POST", "/v2/%s/blobs/uploads/" % self.repository)
+        upload_request = self.doHttpCall(
+            "POST", f"/v2/{self.repository}/blobs/uploads/"
+        )
         if upload_request.status_code == 202:
             location = upload_request.headers['Location']
-            upload = self.doHttpCall("PUT", location + "&digest=" + digest,
-                                     data=content)
+            upload = self.doHttpCall("PUT", f"{location}&digest={digest}", data=content)
             return upload.status_code == 201
 
         return False
